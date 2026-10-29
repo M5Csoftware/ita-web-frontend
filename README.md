@@ -37,7 +37,16 @@ Available → Allotted → Issued → Manifested → Departed → Arrived → De
 - Operational KPIs: Total live gross tonnage, active consolidations, e-AWB EDI dispatch success rate, and pending CASS reconciliations.
 - Action center with one-click shortcuts to key workflows.
 
-### 2. AWB Stock Management (Resolution 600b Modulo-7)
+### 2. Create Cargo Docket & Consignment Note
+- **Counter Intake**: Registration of cargo consignment dockets with auto-generated formatted sequences (e.g. `DKT-DEL-FRA-0101`).
+- **Route & Service Configuration**: Station origin & destination selection, service speed (`EXPRESS_AIR`, `STANDARD_AIR`, `PRIORITY_AOG`, `COLD_CHAIN`), and payment terms (`PREPAID`, `TO_PAY`, `ON_ACCOUNT`).
+- **Consignor & Consignee Directory Integration**: Fast 1-click auto-fill from accredited trading partners with complete GSTIN and telephone mapping.
+- **Dimensional Cubing Engine**: Multi-tier dimensions table calculating volumetric weight ($L \times W \times H \div 6000$) and locking chargeable weight.
+- **Statutory Charges & 18% GST**: Real-time breakdown of freight charges, stationery docket fee, 11% fuel surcharge, 4% security surcharge, and 18% GST.
+- **3-Ply Print Preview**: High-fidelity consignment note modal with copy selector (**Consignor Copy**, **Consignee / POD Delivery Copy**, and **Station / Office Copy**), barcode, and authorized signature foils.
+- **Direct AWB Allocation**: Seamless 1-click assignment of available IATA stock to the docket, auto-generating the Master AWB.
+
+### 3. AWB Stock Management (Resolution 600b Modulo-7)
 - **IATA Resolution 600b Check Digit Validation**:
   - The 8th digit of the serial number is strictly verified as the remainder of the first 7 digits divided by 7:
     $$\text{Check Digit} = \text{Serial}_{1..7} \pmod 7$$

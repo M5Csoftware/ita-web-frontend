@@ -62,8 +62,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
         <div className="flex items-center gap-3 shrink-0">
           <button
-            onClick={() => onNavigate('stock')}
+            onClick={() => onNavigate('docket')}
             className="px-4 py-2.5 bg-white text-[#2C5EAD] hover:bg-blue-50 font-bold font-heading rounded-xl text-xs transition-all shadow-sm"
+          >
+            + Create Docket
+          </button>
+          <button
+            onClick={() => onNavigate('stock')}
+            className="px-4 py-2.5 bg-blue-900/40 hover:bg-blue-900/60 border border-white/20 text-white font-bold font-heading rounded-xl text-xs transition-all"
           >
             Manage AWB Stock
           </button>
