@@ -53,6 +53,49 @@ export interface IssuingAgentProfile {
   panNumber: string;
 }
 
+export type DocketServiceMode = 'EXPRESS_AIR' | 'STANDARD_AIR' | 'PRIORITY_AOG' | 'COLD_CHAIN';
+export type DocketPaymentMode = 'PREPAID' | 'TO_PAY' | 'ON_ACCOUNT';
+export type DocketStatus = 'BOOKED' | 'AWB_ASSIGNED' | 'MANIFESTED' | 'IN_TRANSIT' | 'DELIVERED' | 'CANCELLED';
+
+export interface DocketItem {
+  id: string;
+  docketNumber: string; // e.g. "DKT-DEL-2026-10492"
+  bookingDate: string;
+  serviceMode: DocketServiceMode;
+  paymentMode: DocketPaymentMode;
+  origin: string; // IATA Airport code
+  destination: string; // IATA Airport code
+  consignorName: string;
+  consignorAddress: string;
+  consignorPhone: string;
+  consignorGst: string;
+  consigneeName: string;
+  consigneeAddress: string;
+  consigneePhone: string;
+  consigneeGst: string;
+  pieces: number;
+  packageType: string;
+  actualWeightKg: number;
+  dimensions: DimensionEntry[];
+  volumetricWeightKg: number;
+  chargeableWeightKg: number;
+  natureOfGoods: string;
+  handlingCode: SpecialHandlingCode;
+  declaredValue: number;
+  ewayBillNumber?: string;
+  ratePerKg: number;
+  freightAmount: number;
+  docketFee: number;
+  fuelSurcharge: number;
+  securitySurcharge: number;
+  subtotal: number;
+  gstAmount: number;
+  totalAmount: number;
+  assignedAwb?: string;
+  status: DocketStatus;
+  createdAt: string;
+}
+
 export interface AwbStockItem {
   id: string;
   airlinePrefix: string;

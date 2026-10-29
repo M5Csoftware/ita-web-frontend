@@ -14,11 +14,13 @@ import {
   ChevronRight, 
   X,
   ShieldCheck,
-  UserCheck
+  UserCheck,
+  ReceiptText
 } from 'lucide-react';
 
 export type NavPage = 
   | 'dashboard' 
+  | 'docket'
   | 'stock' 
   | 'bookings' 
   | 'mawb' 
@@ -38,6 +40,7 @@ interface SidebarProps {
   onCloseMobile: () => void;
   stockCount?: number;
   bookingsCount?: number;
+  docketCount?: number;
   mawbsCount?: number;
   currentRole?: UserRole;
   onRoleChange?: (role: UserRole) => void;
@@ -52,6 +55,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile,
   stockCount = 4,
   bookingsCount = 3,
+  docketCount = 3,
   mawbsCount = 3,
   currentRole = 'Operations',
   onRoleChange,
@@ -61,6 +65,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'dashboard' as NavPage,
       label: 'AWB Lifecycle Dashboard',
       icon: LayoutDashboard,
+    },
+    {
+      id: 'docket' as NavPage,
+      label: 'Create Docket / CN',
+      icon: ReceiptText,
+      badge: docketCount > 0 ? `${docketCount} dkt` : undefined,
+      badgeColor: 'bg-amber-50 text-amber-700 border-amber-200',
     },
     {
       id: 'stock' as NavPage,

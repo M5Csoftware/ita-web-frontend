@@ -34,8 +34,12 @@ import {
   MasterDataView 
 } from '@/components/iata/MasterDataView';
 import { 
+  CreateDocketView 
+} from '@/components/iata/CreateDocketView';
+import { 
   AwbStockItem, 
   BookingItem, 
+  DocketItem,
   MawbItem, 
   HawbItem, 
   FlightManifestItem, 
@@ -50,6 +54,7 @@ import {
 import { 
   INITIAL_AWB_STOCK, 
   INITIAL_BOOKINGS, 
+  INITIAL_DOCKETS,
   INITIAL_MAWBS, 
   INITIAL_MANIFESTS, 
   INITIAL_EAWB_MESSAGES, 
@@ -70,6 +75,7 @@ export default function HomePage() {
 
   // Primary IATA Domain State
   const [stock, setStock] = useState<AwbStockItem[]>(INITIAL_AWB_STOCK);
+  const [dockets, setDockets] = useState<DocketItem[]>(INITIAL_DOCKETS);
   const [bookings, setBookings] = useState<BookingItem[]>(INITIAL_BOOKINGS);
   const [mawbs, setMawbs] = useState<MawbItem[]>(INITIAL_MAWBS);
   const [manifests, setManifests] = useState<FlightManifestItem[]>(INITIAL_MANIFESTS);
@@ -130,6 +136,99 @@ export default function HomePage() {
       )
     );
     showToast(`AWB marked as VOID. Serial is permanently locked from future issuance per IATA rules.`, 'info');
+  };
+
+  // --- 1.5 DOCKET / CONSIGNMENT NOTE HANDLERS ---
+  const handleCreateDocket = (docketData: Omit<DocketItem, 'id' | 'createdAt' | 'status'>) => {
+    const newDocket: DocketItem = {
+      ...docketData,
+      id: `dkt-${Date.now()}`,
+      status: 'BOOKED',
+      createdAt: new Date().toISOString(),
+    };
+    setDockets((prev) => [newDocket, ...prev]);
+    showToast(`Docket ${newDocket.docketNumber} registered. Chargeable weight locked at ${newDocket.chargeableWeightKg} kg.`);
+  };
+
+  const handleAssignAwbToDocket = (docket: DocketItem) => {
+    const availableItem = stock.find((s) => s.status === 'AVAILABLE');
+
+    if (!availableItem) {
+      showToast('No available AWB numbers in stock. Please generate a new stock series first.', 'error');
+      setActivePage('stock');
+      return;
+    }
+
+    // Mark stock as ISSUED
+    setStock((prev) =>
+      prev.map((s) =>
+        s.id === availableItem.id
+          ? { ...s, status: 'ISSUED', issuedAt: new Date().toISOString().split('T')[0] }
+          : s
+      )
+    );
+
+    // Update docket status
+    setDockets((prev) =>
+      prev.map((d) =>
+        d.id === docket.id ? { ...d, status: 'AWB_ASSIGNED', assignedAwb: availableItem.fullAwbNumber } : d
+      )
+    );
+
+    // Create corresponding MAWB
+    const newMawb: MawbItem = {
+      id: `mawb-${Date.now()}`,
+      mawbNumber: availableItem.fullAwbNumber,
+      airlinePrefix: availableItem.airlinePrefix,
+      serialNumber: availableItem.airlineNumber,
+      shipperName: docket.consignorName,
+      shipperAddress: docket.consignorAddress,
+      consigneeName: docket.consigneeName,
+      consigneeAddress: docket.consigneeAddress,
+      issuingAgentName: agentProfile.name,
+      issuingAgentIataCode: agentProfile.iataNumericCode,
+      origin: docket.origin,
+      destination: docket.destination,
+      pieces: docket.pieces,
+      grossWeightKg: docket.actualWeightKg,
+      chargeableWeightKg: docket.chargeableWeightKg,
+      rateClass: 'Q',
+      ratePerKg: docket.ratePerKg,
+      freightAmount: docket.freightAmount,
+      fuelSurcharge: docket.fuelSurcharge,
+      securitySurcharge: docket.securitySurcharge,
+      totalCharges: docket.subtotal,
+      natureOfGoods: docket.natureOfGoods,
+      handlingCode: docket.handlingCode,
+      flightNumber: 'AI-121',
+      flightDate: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
+      hawbs: [],
+      status: 'ISSUED',
+      issuedAt: new Date().toISOString().split('T')[0],
+      fwbSent: false,
+    };
+    setMawbs((prev) => [newMawb, ...prev]);
+
+    // Create GST Invoice
+    const newInvoice: CassInvoice = {
+      id: `inv-${Date.now()}`,
+      invoiceNumber: `INV-2026-${Math.floor(1000 + Math.random() * 9000)}`,
+      mawbNumber: newMawb.mawbNumber,
+      customerName: docket.consignorName,
+      date: new Date().toISOString().split('T')[0],
+      freightCharges: docket.freightAmount,
+      fuelSurcharge: docket.fuelSurcharge,
+      securitySurcharge: docket.securitySurcharge,
+      handlingCharges: docket.docketFee,
+      subtotal: docket.subtotal,
+      gstAmount: docket.gstAmount,
+      totalAmount: docket.totalAmount,
+      cassReconciliationStatus: 'PENDING_MATCH',
+      paymentStatus: docket.paymentMode === 'PREPAID' ? 'PAID' : 'UNPAID',
+    };
+    setInvoices((prev) => [newInvoice, ...prev]);
+
+    showToast(`AWB ${newMawb.mawbNumber} allocated to Docket ${docket.docketNumber}!`);
   };
 
   // --- 2. BOOKINGS HANDLERS ---
@@ -466,6 +565,7 @@ ${hawbLines}`;
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
         stockCount={availableStockCount}
         bookingsCount={pendingBookingsCount}
+        docketCount={dockets.filter(d => d.status === 'BOOKED').length}
         mawbsCount={mawbs.length}
         currentRole={currentRole}
         onRoleChange={(role) => {
@@ -497,6 +597,17 @@ ${hawbLines}`;
               stock={stock}
               bookings={bookings}
               onNavigate={(page) => setActivePage(page as NavPage)}
+            />
+          )}
+
+          {activePage === 'docket' && (
+            <CreateDocketView
+              dockets={dockets}
+              airports={airports}
+              partners={partners}
+              availableAwbCount={availableStockCount}
+              onCreateDocket={handleCreateDocket}
+              onAssignAwbToDocket={handleAssignAwbToDocket}
             />
           )}
 

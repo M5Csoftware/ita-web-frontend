@@ -29,6 +29,8 @@ export const Navbar: React.FC<NavbarProps> = ({
     switch (page) {
       case 'dashboard':
         return 'AWB Operations & Lifecycle';
+      case 'docket':
+        return 'Create Cargo Docket & Consignment Note';
       case 'stock':
         return 'AWB Stock Management (Res 600b)';
       case 'bookings':
@@ -52,6 +54,8 @@ export const Navbar: React.FC<NavbarProps> = ({
     switch (page) {
       case 'dashboard':
         return 'Real-time AWB stage pipeline, capacity tracking, and operational action queue';
+      case 'docket':
+        return 'Shipment counter intake, dimensional cubing (L×W×H÷6000), E-Way bill mapping, and AWB link';
       case 'stock':
         return 'IATA Resolution 600b Mod-7 check digit generator, airline stock series, and audit-locked void control';
       case 'bookings':
