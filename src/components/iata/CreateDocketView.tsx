@@ -16,14 +16,12 @@ import {
   Plus, 
   Printer, 
   Trash2, 
-  Calculator, 
   Search, 
   CheckCircle2, 
   Layers, 
   Plane, 
   Building2, 
   Clock, 
-  AlertCircle,
   X
 } from 'lucide-react';
 
@@ -137,7 +135,8 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
     if (!consignorName || !consigneeName) return;
 
     // Deterministic docket sequence
-    const generatedDocketNumber = `DKT-${origin}-${destination}-${Math.floor(100000 + Math.random() * 900000)}`;
+    const sequenceNum = (dockets.length + 101).toString().padStart(4, '0');
+    const generatedDocketNumber = `DKT-${origin}-${destination}-${sequenceNum}`;
 
     onCreateDocket({
       docketNumber: generatedDocketNumber,
