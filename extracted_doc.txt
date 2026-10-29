@@ -1,0 +1,399 @@
+AWB Software – Phase-wise Flow
+
+.
+
+Overall AWB lifecycle
+
+1
+
+Login  –  role-based access (Admin / Operations / Accounts / Customer)
+
+2
+
+Master Data Setup  –  shipper, consignee, airline, airport, commodity, rates
+
+3
+
+AWB Stock Management  –  airline-wise AWB number series entry
+
+4
+
+Booking  –  shipment details, weight, dimensions
+
+5
+
+Rate & Charges Calculation  –  chargeable weight, freight, surcharges
+
+6
+
+AWB Generation  –  number assigned from stock, IATA format
+
+7
+
+HAWB Creation (consolidation)  –  house AWBs linked to the Master AWB
+
+8
+
+AWB / HAWB Print / PDF  –  Original 1, 2, 3 and extra copies
+
+9
+
+Flight Allocation & e-AWB  –  flight details, FWB / FHL messages to airline
+
+10
+
+Cargo Manifest  –  flight-wise manifest of MAWBs and HAWBs
+
+11
+
+Cargo Handover & Tracking  –  accepted, manifested, departed, arrived, delivered
+
+12
+
+Billing & Settlement  –  invoice, GST, CASS reconciliation
+
+13
+
+Reports  –  sales, stock, outstanding
+
+AWB status flow
+
+Available → Allotted → Issued → Manifested → Departed → Arrived → Delivered
+
+Void / Cancelled is possible from any stage before departure.
+
+2. Phase 1 – Core AWB System
+
+Goal: From AWB number stock to AWB generation and printing.
+
+Flow
+
+1
+
+Login  –  role-based
+
+2
+
+Master Data entry
+
+3
+
+AWB Stock entry  –  airline-wise
+
+4
+
+Booking create
+
+5
+
+AWB generate  –  number auto-assigned from stock
+
+6
+
+HAWB create  –  for consolidated shipments, linked to the Master AWB
+
+7
+
+AWB / HAWB Print / PDF
+
+Modules
+
+2.1 Login and User Roles
+
+Roles: Admin, Operations, Accounts.
+
+Separate permissions per role (view / create / edit / delete).
+
+Password reset and session timeout.
+
+2.2 Master Data
+
+Shipper and Consignee (name, address, contact, GST / PAN).
+
+Airline (name, 3-digit prefix code, e.g. 098).
+
+Airport (IATA code).
+
+Commodity and Currency.
+
+Issuing Agent details (company name, IATA code, address).
+
+2.3 AWB Stock
+
+Enter AWB number series airline-wise (from – to).
+
+Check-digit validation: last digit of the 8-digit serial number = remainder of the first 7 digits divided by 7.
+
+Status: Available → Allotted → Issued → Void.
+
+Block duplicate number entry.
+
+A voided AWB number must never be reused.
+
+2.4 Booking
+
+Shipper, Consignee, Origin, Destination.
+
+Pieces, actual weight, dimensions (L × B × H).
+
+Volumetric weight = L × B × H ÷ 6000 (cm).
+
+Chargeable weight = higher of actual and volumetric weight.
+
+Commodity and handling information.
+
+2.5 AWB Generation
+
+Select a booking; the next available number is auto-assigned from stock.
+
+IATA-standard AWB fields auto-filled, with manual edit option.
+
+Status changes to Issued.
+
+2.6 HAWB (House Air Waybill)
+
+Create one or more HAWBs under a single Master AWB (MAWB) for consolidated / groupage shipments.
+
+HAWB number generation with a user-defined series (e.g. agent prefix + running number); duplicate numbers blocked.
+
+HAWB fields: HAWB number, linked MAWB number, shipper, consignee, origin, destination, pieces, gross weight, chargeable weight, nature of goods, handling information.
+
+Validation: total pieces and weight of all HAWBs must match the MAWB (warning if mismatch).
+
+Add, edit and remove HAWBs while the MAWB is not yet manifested; locked after manifest.
+
+Status: Created → Linked to MAWB → Manifested → Departed → Arrived → Delivered; HAWB can be voided before departure.
+
+HAWB print / PDF in agent’s own format, and HAWB list under each MAWB.
+
+Separate tracking by HAWB number as well as MAWB number.
+
+2.7 Print / PDF
+
+Exact IATA AWB layout for MAWB.
+
+HAWB print in agent format.
+
+Copies: Original 1, 2, 3 and extra copies.
+
+Download and print.
+
+2.8 Audit Log
+
+Record who created, edited or voided what, and when (applies to both MAWB and HAWB).
+
+Phase 1 deliverable: Working software in which a MAWB and its HAWBs can be created and printed.
+
+3. Phase 2 – Rates, Billing and Tracking
+
+Goal: Calculate charges, generate invoices and track shipments.
+
+Flow
+
+1
+
+Booking
+
+2
+
+Rate Engine  –  automatic charges
+
+3
+
+Charges filled in AWB
+
+4
+
+Flight allocation
+
+5
+
+Manifest create  –  flight-wise, with MAWBs and HAWBs
+
+6
+
+Cargo handover
+
+7
+
+Status tracking  –  MAWB and HAWB level
+
+8
+
+Invoice generation  –  MAWB-wise and HAWB / customer-wise
+
+Modules
+
+3.1 Rate Engine
+
+Airline-wise, route-wise and weight-slab-wise rates.
+
+Slabs: Minimum, Normal, +45, +100, +300, +500, +1000 kg.
+
+Surcharges: Fuel, Security and other charges.
+
+Rate validity (from date – to date).
+
+Rate auto-picked at booking time, with manual override option.
+
+3.2 Flight Allocation
+
+Airline, flight number, date and routing.
+
+Link an AWB to a flight.
+
+3.3 Manifest
+
+Create a cargo manifest per flight (airline, flight number, date, origin, destination).
+
+Add MAWBs to the manifest; HAWBs under each MAWB are listed automatically.
+
+Manifest fields: MAWB number, HAWB number (if any), origin / destination, pieces, weight, nature of goods, shipper and consignee, special handling codes.
+
+Totals: number of AWBs, total pieces, total weight (with HAWB-wise breakup).
+
+Only Issued AWBs can be added; one AWB cannot be added to two manifests.
+
+Status of added MAWB and its HAWBs changes to Manifested once the manifest is finalized; finalized manifest is locked (changes only by Admin with audit log).
+
+Remove AWB or split shipment (partial pieces) with reason recorded.
+
+Manifest print / PDF and Excel export; consolidated manifest for multiple AWBs on the same flight.
+
+Manifest cancellation or re-issue (revision number) if the flight changes.
+
+3.4 Cargo Handover
+
+Warehouse receipt and airline acceptance.
+
+Status: Allotted → Issued → Manifested → Departed.
+
+3.5 Tracking
+
+Status flow: Booked → Accepted → Manifested → Departed → Arrived → Delivered, tracked at both MAWB and HAWB level.
+
+Date and time stamp on every status update.
+
+Email / WhatsApp notification to the customer.
+
+3.6 Invoice and Accounts
+
+Invoice generation with GST (CGST / SGST / IGST), MAWB-wise and HAWB / customer-wise for consolidated shipments.
+
+Debit note and credit note.
+
+Payment entry and customer ledger.
+
+Outstanding report.
+
+3.7 Documents
+
+Invoice PDF, packing list and Shipper’s Letter of Instruction (SLI); manifest and HAWB documents are covered in their own modules.
+
+Phase 2 deliverable: Complete cycle from AWB / HAWB to manifest and invoice, with shipment tracking.
+
+4. Phase 3 – Integration and Customer Portal
+
+Goal: Airline integration, settlement and customer self-service.
+
+Flow
+
+1
+
+AWB Issued
+
+2
+
+e-AWB (FWB / FHL) sent to airline  –  FHL carries HAWB details
+
+3
+
+Flight manifest (FFM) sent to airline  –  optional, as required by airline
+
+4
+
+Airline status updates received  –  FSU
+
+5
+
+CASS billing / settlement
+
+6
+
+Reports
+
+7
+
+Customer portal  –  self-service
+
+Modules
+
+4.1 e-AWB Integration
+
+Generate and send FWB (Air Waybill message) for each MAWB and FHL (House Manifest message) with HAWB details for consolidated shipments.
+
+Send flight manifest message (FFM) to the airline where required, generated from the finalized manifest.
+
+Format: Cargo-IMP / XML, as required by each airline.
+
+Log of messages sent and acknowledgements received.
+
+Retry for failed messages.
+
+4.2 Airline Status Updates
+
+Tracking auto-updated from airline status messages (FSU).
+
+4.3 CASS and Settlement
+
+Airline-wise billing statement.
+
+CASS data reconciliation.
+
+Tracking of agent payments and airline payments.
+
+4.4 Reports
+
+Stock report (Available / Used / Void).
+
+Booking report.
+
+Airline-wise sales.
+
+Customer-wise sales and outstanding.
+
+Date-range filter; Excel / PDF export.
+
+4.5 Customer Portal
+
+Customer login.
+
+Submit booking requests.
+
+AWB tracking.
+
+Download invoice and AWB copy.
+
+4.6 System
+
+Daily backup.
+
+Multi-user concurrent access.
+
+Performance and security testing.
+
+Phase 3 deliverable: Airline-integrated system with CASS reconciliation, reports and customer portal.
+
+5. Common Rules for the Whole Project
+
+AWB format must follow IATA Resolution 600b.
+
+Audit log for every important action.
+
+Role-based access applied in every module.
+
+A voided AWB number must never be reused.
+
+Data backup and export (Excel / PDF).
+
+Testing and demo at the end of each phase; the next phase starts only after approval.
