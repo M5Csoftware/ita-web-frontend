@@ -30,6 +30,7 @@ export type NavPage =
   | 'manifest' 
   | 'eawb' 
   | 'billing' 
+  | 'invoice-generation'
   | 'master'
   | 'settings';
 
@@ -118,6 +119,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'billing' as NavPage,
       label: 'Rates, GST & CASS',
       icon: Receipt,
+    },
+    {
+      id: 'invoice-generation' as NavPage,
+      label: 'Invoice Generation',
+      icon: ReceiptText,
     },
     {
       id: 'master' as NavPage,

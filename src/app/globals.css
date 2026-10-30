@@ -27,3 +27,34 @@ h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-poppins), sans-serif;
   letter-spacing: -0.015em;
 }
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  .invoice-print-target[data-print-active="true"],
+  .invoice-print-target[data-print-active="true"] * {
+    visibility: visible !important;
+  }
+
+  .invoice-print-target:not([data-print-active="true"]) {
+    display: none !important;
+  }
+
+  .invoice-print-target[data-print-active="true"] {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    border: 0 !important;
+    background: white !important;
+    box-shadow: none !important;
+  }
+
+  .invoice-print-target button,
+  .invoice-print-target input,
+  .invoice-print-target select,
+  .invoice-print-target textarea {
+    display: none !important;
+  }
+}

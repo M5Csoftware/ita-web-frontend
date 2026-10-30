@@ -221,7 +221,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ users, onLogin }) => {
                 className="py-2 px-2 rounded-xl border border-purple-200 bg-purple-50/70 hover:bg-purple-100/70 text-purple-700 text-xs font-bold font-heading transition-all flex flex-col items-center gap-0.5 cursor-pointer text-center"
               >
                 <span>👑 admin</span>
-                <span className="text-[10px] font-mono text-purple-600 font-normal">All 10 Access</span>
+                <span className="text-[10px] font-mono text-purple-600 font-normal">All {ALL_TAB_IDS.length} Access</span>
               </button>
 
               <button
@@ -263,4 +263,3 @@ export const LoginView: React.FC<LoginViewProps> = ({ users, onLogin }) => {
     </div>
   );
 };
-

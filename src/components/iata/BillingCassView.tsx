@@ -19,11 +19,14 @@ export const BillingCassView: React.FC<BillingCassViewProps> = ({
 }) => {
   const [filterCass, setFilterCass] = useState('ALL');
 
-  const totalBilled = invoices.reduce((acc, inv) => acc + inv.totalAmount, 0);
-  const totalGst = invoices.reduce((acc, inv) => acc + inv.gstAmount, 0);
-  const reconciledCount = invoices.filter((i) => i.cassReconciliationStatus === 'RECONCILED').length;
+  const cassInvoices = invoices.filter((invoice) =>
+    invoice.invoiceStatus !== 'DRAFT' && invoice.invoiceStatus !== 'CANCELLED'
+  );
+  const totalBilled = cassInvoices.reduce((acc, inv) => acc + inv.totalAmount, 0);
+  const totalGst = cassInvoices.reduce((acc, inv) => acc + inv.gstAmount, 0);
+  const reconciledCount = cassInvoices.filter((i) => i.cassReconciliationStatus === 'RECONCILED').length;
 
-  const filteredInvoices = invoices.filter((i) => {
+  const filteredInvoices = cassInvoices.filter((i) => {
     return filterCass === 'ALL' || i.cassReconciliationStatus === filterCass;
   });
 
