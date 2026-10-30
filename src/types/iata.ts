@@ -53,6 +53,60 @@ export interface IssuingAgentProfile {
   panNumber: string;
 }
 
+export type NavPageId = 
+  | 'dashboard' 
+  | 'docket' 
+  | 'stock' 
+  | 'bookings' 
+  | 'mawb' 
+  | 'manifest' 
+  | 'eawb' 
+  | 'billing' 
+  | 'master' 
+  | 'settings';
+
+export const ALL_TAB_IDS: NavPageId[] = [
+  'dashboard', 
+  'docket', 
+  'stock', 
+  'bookings', 
+  'mawb', 
+  'manifest', 
+  'eawb', 
+  'billing', 
+  'master', 
+  'settings'
+];
+
+export type UserRole = 'admin' | 'user';
+
+export interface UserAccount {
+  id: string;
+  username: string;
+  password?: string;
+  fullName: string;
+  role: UserRole;
+  email: string;
+  stationCode: string;
+  isActive: boolean;
+  permissions: NavPageId[]; // Individual selective tab permissions for each user
+  avatar?: string;
+}
+
+export function getUserEffectiveTabs(user: UserAccount | null): NavPageId[] {
+  if (!user) return ALL_TAB_IDS;
+  const role = (user.role || '').toLowerCase();
+  const uname = (user.username || '').toLowerCase();
+  // Admin strictly has complete access to all 10 modules under any circumstances
+  if (role === 'admin' || role === 'administrator' || uname === 'admin') {
+    return ALL_TAB_IDS;
+  }
+  if (user.permissions && Array.isArray(user.permissions) && user.permissions.length > 0) {
+    return user.permissions;
+  }
+  return ['dashboard'];
+}
+
 export type DocketServiceMode = 'EXPRESS_AIR' | 'STANDARD_AIR' | 'PRIORITY_AOG' | 'COLD_CHAIN';
 export type DocketPaymentMode = 'PREPAID' | 'TO_PAY' | 'ON_ACCOUNT';
 export type DocketStatus = 'BOOKED' | 'AWB_ASSIGNED' | 'MANIFESTED' | 'IN_TRANSIT' | 'DELIVERED' | 'CANCELLED';

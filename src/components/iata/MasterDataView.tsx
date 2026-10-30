@@ -168,11 +168,11 @@ export const MasterDataView: React.FC<MasterDataViewProps> = ({
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-200 pb-6">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900 tracking-tight font-heading">
-            Master Data & Agent Setup
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight font-heading">
+            IATA Master Data &amp; Agent Profile
           </h1>
-          <p className="text-base text-slate-500 mt-2 font-sans">
-            Configure IATA registered issuing agent details, airline prefixes, airport IATA 3-letter codes, and trading partners.
+          <p className="text-sm sm:text-base text-slate-500 mt-1 font-sans">
+            Airline 3-digit prefixes, airport codes, shippers, consignees, and accredited issuing agent profile
           </p>
         </div>
 

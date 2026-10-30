@@ -9,7 +9,9 @@ import {
   CassInvoice,
   ShipperConsignee,
   IssuingAgentProfile,
-  DocketItem
+  DocketItem,
+  UserAccount,
+  ALL_TAB_IDS
 } from '@/types/iata';
 
 export const ISSUING_AGENT_PROFILE: IssuingAgentProfile = {
@@ -548,6 +550,53 @@ export const INITIAL_DOCKETS: DocketItem[] = [
     totalAmount: 93904.40,
     status: 'BOOKED',
     createdAt: '2026-10-29T15:30:00Z',
+  },
+];
+
+export const DEFAULT_USERS: UserAccount[] = [
+  {
+    id: 'usr-admin',
+    username: 'admin',
+    password: 'admin',
+    fullName: 'System Administrator',
+    role: 'admin',
+    email: 'admin@iata-cargo.org',
+    stationCode: 'DEL (HQ)',
+    isActive: true,
+    permissions: ALL_TAB_IDS,
+  },
+  {
+    id: 'usr-1',
+    username: 'user1',
+    password: 'user1',
+    fullName: 'Rahul Sharma (Operations & Stock)',
+    role: 'user',
+    email: 'user1@iata-cargo.org',
+    stationCode: 'DEL / T3 Cargo',
+    isActive: true,
+    permissions: ['dashboard', 'docket', 'stock', 'bookings'],
+  },
+  {
+    id: 'usr-2',
+    username: 'user2',
+    password: 'user2',
+    fullName: 'Sarah Jenkins (Manifest & e-AWB)',
+    role: 'user',
+    email: 'user2@iata-cargo.org',
+    stationCode: 'BOM / Airside',
+    isActive: true,
+    permissions: ['dashboard', 'mawb', 'manifest', 'eawb'],
+  },
+  {
+    id: 'usr-3',
+    username: 'user3',
+    password: 'user3',
+    fullName: 'Priya Mehra (Accounts & Settlement)',
+    role: 'user',
+    email: 'user3@iata-cargo.org',
+    stationCode: 'DEL / CASS Clearing',
+    isActive: true,
+    permissions: ['dashboard', 'billing', 'master'],
   },
 ];
 

@@ -1,10 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Sidebar, 
-  NavPage, 
-  UserRole 
+  NavPage 
 } from '@/components/layout/Sidebar';
 import { 
   Navbar 
@@ -37,6 +36,12 @@ import {
   CreateDocketView 
 } from '@/components/iata/CreateDocketView';
 import { 
+  SettingsPermissionsView 
+} from '@/components/settings/SettingsPermissionsView';
+import { 
+  LoginView 
+} from '@/components/auth/LoginView';
+import { 
   AwbStockItem, 
   BookingItem, 
   DocketItem,
@@ -49,6 +54,11 @@ import {
   Airport, 
   ShipperConsignee, 
   IssuingAgentProfile,
+  UserAccount,
+  UserRole,
+  NavPageId,
+  ALL_TAB_IDS,
+  getUserEffectiveTabs,
   calculateIataMod7CheckDigit
 } from '@/types/iata';
 import { 
@@ -62,15 +72,20 @@ import {
   IATA_AIRLINES,
   IATA_AIRPORTS,
   INITIAL_PARTNERS,
-  ISSUING_AGENT_PROFILE
+  ISSUING_AGENT_PROFILE,
+  DEFAULT_USERS
 } from '@/lib/iata-data';
 
 export default function HomePage() {
+  // Authentication & Session State
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
+  const [isAuthChecked, setIsAuthChecked] = useState(false);
+  const [users, setUsers] = useState<UserAccount[]>(DEFAULT_USERS);
+
   // Navigation & Role
   const [activePage, setActivePage] = useState<NavPage>('dashboard');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
-  const [currentRole, setCurrentRole] = useState<UserRole>('Operations');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Primary IATA Domain State
@@ -96,6 +111,178 @@ export default function HomePage() {
     setTimeout(() => setNotification(null), 4000);
   };
 
+  // Restore session & custom user accounts from localStorage with admin guarantee
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        const storedUser = localStorage.getItem('iata_auth_user');
+        if (storedUser) {
+          const parsed: UserAccount = JSON.parse(storedUser);
+          const isAdmin = parsed.username?.toLowerCase() === 'admin' || parsed.role?.toLowerCase() === 'admin';
+          if (isAdmin) {
+            parsed.role = 'admin';
+            parsed.permissions = ALL_TAB_IDS;
+          }
+          setCurrentUser(parsed);
+        }
+        const storedUsers = localStorage.getItem('iata_users');
+        if (storedUsers) {
+          const parsedUsers: UserAccount[] = JSON.parse(storedUsers);
+          const sanitized = parsedUsers.map((u) => {
+            if (u.username?.toLowerCase() === 'admin' || u.role?.toLowerCase() === 'admin') {
+              return { ...u, role: 'admin' as UserRole, permissions: ALL_TAB_IDS, isActive: true };
+            }
+            return u;
+          });
+          setUsers(sanitized);
+        }
+      } catch (err) {
+        console.error('Session restore error', err);
+      } finally {
+        setIsAuthChecked(true);
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Check if current user is admin
+  const isCurrentUserAdmin = currentUser?.role?.toLowerCase() === 'admin' || 
+                             currentUser?.role?.toLowerCase() === 'administrator' || 
+                             currentUser?.username?.toLowerCase() === 'admin';
+
+  // Compute allowed tabs for the current individual user (Admin strictly has all 10; User has custom permissions)
+  const allowedTabs = useMemo(() => {
+    if (!currentUser || isCurrentUserAdmin) return ALL_TAB_IDS as NavPage[];
+    return getUserEffectiveTabs(currentUser) as NavPage[];
+  }, [currentUser, isCurrentUserAdmin]);
+
+  // Derive the effectively viewed page: if activePage is revoked, fallback to first permitted tab
+  const effectiveActivePage = useMemo(() => {
+    if (allowedTabs.length === 0) return activePage;
+    return allowedTabs.includes(activePage) ? activePage : allowedTabs[0];
+  }, [allowedTabs, activePage]);
+
+  // --- AUTHENTICATION HANDLERS ---
+  const handleLogin = (user: UserAccount) => {
+    const isUserAdmin = user.username?.toLowerCase() === 'admin' || user.role?.toLowerCase() === 'admin';
+    const baseUser = users.find((u) => u.id === user.id || u.username?.toLowerCase() === user.username?.toLowerCase()) || user;
+    const freshUser: UserAccount = isUserAdmin
+      ? { ...baseUser, role: 'admin', permissions: ALL_TAB_IDS, isActive: true }
+      : baseUser;
+
+    setCurrentUser(freshUser);
+    try {
+      localStorage.setItem('iata_auth_user', JSON.stringify(freshUser));
+    } catch (err) {
+      console.error(err);
+    }
+    showToast(`Welcome, ${freshUser.fullName} (${freshUser.role.toUpperCase()})!`);
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    try {
+      localStorage.removeItem('iata_auth_user');
+    } catch (err) {
+      console.error(err);
+    }
+    showToast('Signed out of station successfully.', 'info');
+  };
+
+  // --- INDIVIDUAL USER PERMISSIONS & MANAGEMENT HANDLERS ---
+  const handleUpdateUserPermissions = (userId: string, newPermissions: NavPageId[]) => {
+    const updated = users.map((u) => (u.id === userId ? { ...u, permissions: newPermissions } : u));
+    setUsers(updated);
+    if (currentUser && currentUser.id === userId) {
+      const updatedCurrent = { ...currentUser, permissions: newPermissions };
+      setCurrentUser(updatedCurrent);
+      try {
+        localStorage.setItem('iata_auth_user', JSON.stringify(updatedCurrent));
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    try {
+      localStorage.setItem('iata_users', JSON.stringify(updated));
+    } catch (err) {
+      console.error(err);
+    }
+    showToast('User permissions updated successfully.');
+  };
+
+  const handleUpdateUserRole = (userId: string, newRole: 'admin' | 'user') => {
+    const updated = users.map((u) => {
+      if (u.id === userId) {
+        return {
+          ...u,
+          role: newRole,
+          permissions: newRole === 'admin' ? getUserEffectiveTabs({ ...u, role: 'admin' }) : u.permissions,
+        };
+      }
+      return u;
+    });
+    setUsers(updated);
+    if (currentUser && currentUser.id === userId) {
+      const updatedCurrent = { 
+        ...currentUser, 
+        role: newRole,
+        permissions: newRole === 'admin' ? getUserEffectiveTabs({ ...currentUser, role: 'admin' }) : currentUser.permissions,
+      };
+      setCurrentUser(updatedCurrent);
+      try {
+        localStorage.setItem('iata_auth_user', JSON.stringify(updatedCurrent));
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    try {
+      localStorage.setItem('iata_users', JSON.stringify(updated));
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleAddUser = (newUser: UserAccount) => {
+    const updated = [...users, newUser];
+    setUsers(updated);
+    try {
+      localStorage.setItem('iata_users', JSON.stringify(updated));
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleToggleUserStatus = (userId: string) => {
+    const updated = users.map((u) => (u.id === userId ? { ...u, isActive: !u.isActive } : u));
+    setUsers(updated);
+    try {
+      localStorage.setItem('iata_users', JSON.stringify(updated));
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteUser = (userId: string) => {
+    const updated = users.filter((u) => u.id !== userId);
+    setUsers(updated);
+    try {
+      localStorage.setItem('iata_users', JSON.stringify(updated));
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleResetUserPermissions = (userId: string) => {
+    const defaultUser = DEFAULT_USERS.find((u) => u.id === userId);
+    if (!defaultUser) return;
+    handleUpdateUserPermissions(userId, defaultUser.permissions);
+  };
+
+  const handleSimulateUser = (simulatedUser: UserAccount) => {
+    setCurrentUser(simulatedUser);
+    showToast(`Now simulating interface as @${simulatedUser.username} (${simulatedUser.role.toUpperCase()})`);
+  };
+
   // --- 1. AWB STOCK HANDLERS ---
   const handleAddStockSeries = (airlinePrefix: string, fromSerial7: number, toSerial7: number) => {
     const newItems: AwbStockItem[] = [];
@@ -107,7 +294,6 @@ export default function HomePage() {
       const eightDigit = `${serial7Str}${checkDigit}`;
       const fullAwb = `${airlinePrefix}-${eightDigit}`;
 
-      // Check if already in stock
       const exists = stock.some((item) => item.fullAwbNumber === fullAwb);
       if (!exists) {
         newItems.push({
@@ -245,7 +431,6 @@ export default function HomePage() {
   };
 
   const handleAssignAwbToBooking = (booking: BookingItem) => {
-    // Find next available stock item
     const availableItem = stock.find((s) => s.status === 'AVAILABLE');
 
     if (!availableItem) {
@@ -254,7 +439,6 @@ export default function HomePage() {
       return;
     }
 
-    // Mark stock as ISSUED
     setStock((prev) =>
       prev.map((s) =>
         s.id === availableItem.id
@@ -263,21 +447,18 @@ export default function HomePage() {
       )
     );
 
-    // Update booking status
     setBookings((prev) =>
       prev.map((b) =>
         b.id === booking.id ? { ...b, status: 'AWB_ISSUED' } : b
       )
     );
 
-    // Calculate standard charges based on weight
     const ratePerKg = booking.chargeableWeightKg > 300 ? 175 : booking.chargeableWeightKg > 100 ? 195 : 220;
     const freightAmount = booking.chargeableWeightKg * ratePerKg;
     const fuelSurcharge = parseFloat((booking.chargeableWeightKg * 22).toFixed(2));
     const securitySurcharge = parseFloat((booking.chargeableWeightKg * 8).toFixed(2));
     const totalCharges = freightAmount + fuelSurcharge + securitySurcharge;
 
-    // Create new MAWB
     const newMawb: MawbItem = {
       id: `mawb-${Date.now()}`,
       mawbNumber: availableItem.fullAwbNumber,
@@ -313,7 +494,6 @@ export default function HomePage() {
 
     setMawbs((prev) => [newMawb, ...prev]);
 
-    // Generate corresponding GST invoice
     const gstAmount = parseFloat((totalCharges * 0.18).toFixed(2));
     const newInvoice: CassInvoice = {
       id: `inv-${Date.now()}`,
@@ -376,7 +556,6 @@ export default function HomePage() {
       prev.map((m) => (m.id === mawbId ? { ...m, status: 'VOID' } : m))
     );
 
-    // Also lock stock as VOID
     setStock((prev) =>
       prev.map((s) =>
         s.fullAwbNumber === targetMawb.mawbNumber
@@ -398,7 +577,6 @@ export default function HomePage() {
 
     setManifests((prev) => [newManifest, ...prev]);
 
-    // Update status of included MAWBs to MANIFESTED
     setMawbs((prev) =>
       prev.map((m) =>
         manifestData.mawbs.includes(m.mawbNumber)
@@ -537,6 +715,23 @@ ${hawbLines}`;
   const availableStockCount = stock.filter((s) => s.status === 'AVAILABLE').length;
   const pendingBookingsCount = bookings.filter((b) => b.status === 'PENDING_AWB').length;
 
+  // If session is still verifying, show clean minimal background
+  if (!isAuthChecked) {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center font-sans">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-[#2C5EAD] animate-pulse" />
+          <span className="text-xs font-mono text-slate-400">Loading IATA Station...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // If user is not authenticated, render Login Page (admin / admin)
+  if (!currentUser) {
+    return <LoginView users={users} onLogin={handleLogin} />;
+  }
+
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans antialiased flex flex-col">
       {/* Toast Notification */}
@@ -557,7 +752,7 @@ ${hawbLines}`;
 
       {/* Main Sidebar */}
       <Sidebar
-        activePage={activePage}
+        activePage={effectiveActivePage}
         onPageChange={(page) => setActivePage(page)}
         isCollapsed={isSidebarCollapsed}
         onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
@@ -567,11 +762,10 @@ ${hawbLines}`;
         bookingsCount={pendingBookingsCount}
         docketCount={dockets.filter(d => d.status === 'BOOKED').length}
         mawbsCount={mawbs.length}
-        currentRole={currentRole}
-        onRoleChange={(role) => {
-          setCurrentRole(role);
-          showToast(`Active profile role switched to ${role}.`);
-        }}
+        currentRole={currentUser.role}
+        allowedTabs={allowedTabs}
+        currentUser={currentUser}
+        onLogout={handleLogout}
       />
 
       {/* Main Content Area */}
@@ -582,16 +776,18 @@ ${hawbLines}`;
       >
         {/* Top Navbar */}
         <Navbar
-          activePage={activePage}
+          activePage={effectiveActivePage}
           onOpenMobileMenu={() => setIsMobileSidebarOpen(true)}
           searchQuery={searchQuery}
           onSearchChange={(q) => setSearchQuery(q)}
           stationCode="DEL / BOM"
+          currentUser={currentUser}
+          onLogout={handleLogout}
         />
 
         {/* Fluid, wide workspace content area */}
         <main className="flex-1 w-full px-6 sm:px-8 lg:px-8 py-8">
-          {activePage === 'dashboard' && (
+          {effectiveActivePage === 'dashboard' && allowedTabs.includes('dashboard') && (
             <DashboardOverview
               mawbs={mawbs}
               stock={stock}
@@ -600,7 +796,7 @@ ${hawbLines}`;
             />
           )}
 
-          {activePage === 'docket' && (
+          {effectiveActivePage === 'docket' && allowedTabs.includes('docket') && (
             <CreateDocketView
               dockets={dockets}
               airports={airports}
@@ -611,7 +807,7 @@ ${hawbLines}`;
             />
           )}
 
-          {activePage === 'stock' && (
+          {effectiveActivePage === 'stock' && allowedTabs.includes('stock') && (
             <AwbStockView
               stock={stock}
               onAddStockSeries={handleAddStockSeries}
@@ -619,7 +815,7 @@ ${hawbLines}`;
             />
           )}
 
-          {activePage === 'bookings' && (
+          {effectiveActivePage === 'bookings' && allowedTabs.includes('bookings') && (
             <BookingView
               bookings={bookings}
               onCreateBooking={handleCreateBooking}
@@ -627,7 +823,7 @@ ${hawbLines}`;
             />
           )}
 
-          {activePage === 'mawb' && (
+          {effectiveActivePage === 'mawb' && allowedTabs.includes('mawb') && (
             <AwbConsolidationView
               mawbs={mawbs}
               onAddHawb={handleAddHawb}
@@ -635,7 +831,7 @@ ${hawbLines}`;
             />
           )}
 
-          {activePage === 'manifest' && (
+          {effectiveActivePage === 'manifest' && allowedTabs.includes('manifest') && (
             <ManifestView
               manifests={manifests}
               mawbs={mawbs}
@@ -644,7 +840,7 @@ ${hawbLines}`;
             />
           )}
 
-          {activePage === 'eawb' && (
+          {effectiveActivePage === 'eawb' && allowedTabs.includes('eawb') && (
             <EawbMessagingView
               messages={eawbMessages}
               mawbs={mawbs}
@@ -653,7 +849,7 @@ ${hawbLines}`;
             />
           )}
 
-          {activePage === 'billing' && (
+          {effectiveActivePage === 'billing' && allowedTabs.includes('billing') && (
             <BillingCassView
               invoices={invoices}
               onMarkInvoicePaid={handleMarkInvoicePaid}
@@ -661,7 +857,7 @@ ${hawbLines}`;
             />
           )}
 
-          {activePage === 'master' && (
+          {effectiveActivePage === 'master' && allowedTabs.includes('master') && (
             <MasterDataView
               airlines={airlines}
               airports={airports}
@@ -671,6 +867,20 @@ ${hawbLines}`;
               onAddAirport={handleAddAirport}
               onAddPartner={handleAddPartner}
               onUpdateAgentProfile={handleUpdateAgentProfile}
+            />
+          )}
+
+          {effectiveActivePage === 'settings' && allowedTabs.includes('settings') && (
+            <SettingsPermissionsView
+              currentUser={currentUser!}
+              users={users}
+              onUpdateUserPermissions={handleUpdateUserPermissions}
+              onUpdateUserRole={handleUpdateUserRole}
+              onAddUser={handleAddUser}
+              onToggleUserStatus={handleToggleUserStatus}
+              onDeleteUser={handleDeleteUser}
+              onResetUserPermissions={handleResetUserPermissions}
+              onSimulateUser={handleSimulateUser}
             />
           )}
         </main>

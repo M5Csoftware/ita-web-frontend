@@ -99,6 +99,20 @@ Available → Allotted → Issued → Manifested → Departed → Arrived → De
 - **Shippers & Consignees**: Directory with contact information, addresses, and tax identifiers.
 - **Special Handling Codes**: Standard IATA handling codes (`GEN`, `PER`, `DGR`, `VAL`, `AVI`, `HUM`, `COL`).
 
+### 9. Role-Based Access Control (RBAC), Settings & Login
+- **Station Login Screen**:
+  - Direct authentication with default credentials: `admin` / `admin`.
+  - One-click quick login chips for instant testing (`Admin`, `Operations`, `Accounts`).
+  - Session persistence via `localStorage` with secure logout action.
+- **Sidebar Tab Permissions Matrix**:
+  - Interactive grid configuring which sidebar tabs each role can view and access.
+  - Changes sync immediately to the sidebar navigation rail.
+  - Safe fallbacks prevent users from accessing restricted tabs.
+- **User Account & Role Management**:
+  - Create station user accounts, assign roles, station codes, and toggle active status.
+  - Create custom station roles (e.g., `Customs Broker`, `Cargo Inspector`) with independent sidebar permission arrays.
+  - Live role simulation preview.
+
 ---
 
 ## 📁 Project Architecture

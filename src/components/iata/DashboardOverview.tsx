@@ -39,9 +39,21 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 animate-in fade-in duration-300">
       
-      {/* Top Banner: IATA Compliance & Live Pipeline */}
+      {/* Top Header Banner */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-6">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight font-heading">
+            AWB Operations &amp; Lifecycle
+          </h1>
+          <p className="text-sm sm:text-base text-slate-500 mt-1 font-sans">
+            Real-time AWB stage pipeline, capacity tracking, and operational action queue
+          </p>
+        </div>
+      </div>
+
+      {/* Hero Banner: IATA Compliance & Live Pipeline */}
       <div className="bg-gradient-to-r from-[#2C5EAD] to-[#1591DC] rounded-2xl p-7 text-white shadow-md shadow-[#2C5EAD]/20 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
         <div>
           <div className="flex items-center gap-2 mb-2">
