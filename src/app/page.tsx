@@ -75,12 +75,14 @@ import {
   ISSUING_AGENT_PROFILE,
   DEFAULT_USERS
 } from '@/lib/iata-data';
+import * as api from '@/lib/api';
 
 export default function HomePage() {
   // Authentication & Session State
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [isAuthChecked, setIsAuthChecked] = useState(false);
   const [users, setUsers] = useState<UserAccount[]>(DEFAULT_USERS);
+  const [isBackendConnected, setIsBackendConnected] = useState(false);
 
   // Navigation & Role
   const [activePage, setActivePage] = useState<NavPage>('dashboard');
@@ -143,6 +145,62 @@ export default function HomePage() {
       }
     }, 0);
     return () => clearTimeout(timer);
+  }, []);
+
+  // Fetch live state from Fastify + MongoDB backend with safe fallback
+  useEffect(() => {
+    async function syncWithBackend() {
+      try {
+        const isOnline = await api.checkServerHealth();
+        if (!isOnline) return;
+        setIsBackendConnected(true);
+
+        const [
+          resStock,
+          resDockets,
+          resBookings,
+          resMawbs,
+          resManifests,
+          resEawb,
+          resInvoices,
+          resUsers,
+          resAirlines,
+          resAirports,
+          resPartners,
+          resProfile,
+        ] = await Promise.allSettled([
+          api.getStockApi(),
+          api.getDocketsApi(),
+          api.getBookingsApi(),
+          api.getMawbsApi(),
+          api.getManifestsApi(),
+          api.getEawbMessagesApi(),
+          api.getInvoicesApi(),
+          api.getUsersApi(),
+          api.getAirlinesApi(),
+          api.getAirportsApi(),
+          api.getPartnersApi(),
+          api.getAgentProfileApi(),
+        ]);
+
+        if (resStock.status === 'fulfilled' && resStock.value.length > 0) setStock(resStock.value);
+        if (resDockets.status === 'fulfilled' && resDockets.value.length > 0) setDockets(resDockets.value);
+        if (resBookings.status === 'fulfilled' && resBookings.value.length > 0) setBookings(resBookings.value);
+        if (resMawbs.status === 'fulfilled' && resMawbs.value.length > 0) setMawbs(resMawbs.value);
+        if (resManifests.status === 'fulfilled' && resManifests.value.length > 0) setManifests(resManifests.value);
+        if (resEawb.status === 'fulfilled' && resEawb.value.length > 0) setEawbMessages(resEawb.value);
+        if (resInvoices.status === 'fulfilled' && resInvoices.value.length > 0) setInvoices(resInvoices.value);
+        if (resUsers.status === 'fulfilled' && resUsers.value.length > 0) setUsers(resUsers.value);
+        if (resAirlines.status === 'fulfilled' && resAirlines.value.length > 0) setAirlines(resAirlines.value);
+        if (resAirports.status === 'fulfilled' && resAirports.value.length > 0) setAirports(resAirports.value);
+        if (resPartners.status === 'fulfilled' && resPartners.value.length > 0) setPartners(resPartners.value);
+        if (resProfile.status === 'fulfilled' && resProfile.value) setAgentProfile(resProfile.value);
+      } catch (err) {
+        console.warn('Backend connection notice:', err);
+      }
+    }
+
+    syncWithBackend();
   }, []);
 
   // Check if current user is admin
@@ -783,6 +841,7 @@ ${hawbLines}`;
           stationCode="DEL / BOM"
           currentUser={currentUser}
           onLogout={handleLogout}
+          isBackendConnected={isBackendConnected}
         />
 
         {/* Fluid, wide workspace content area */}
