@@ -574,7 +574,7 @@ export const DEFAULT_USERS: UserAccount[] = [
     email: 'user1@iata-cargo.org',
     stationCode: 'DEL / T3 Cargo',
     isActive: true,
-    permissions: ['dashboard', 'docket', 'stock', 'bookings'],
+    permissions: ['dashboard', 'docket', 'stock', 'bookings', 'invoice-generation'],
   },
   {
     id: 'usr-2',
@@ -585,7 +585,7 @@ export const DEFAULT_USERS: UserAccount[] = [
     email: 'user2@iata-cargo.org',
     stationCode: 'BOM / Airside',
     isActive: true,
-    permissions: ['dashboard', 'mawb', 'manifest', 'eawb'],
+    permissions: ['dashboard', 'mawb', 'manifest', 'eawb', 'invoice-generation'],
   },
   {
     id: 'usr-3',
@@ -596,8 +596,6 @@ export const DEFAULT_USERS: UserAccount[] = [
     email: 'user3@iata-cargo.org',
     stationCode: 'DEL / CASS Clearing',
     isActive: true,
-    permissions: ['dashboard', 'billing', 'master'],
+    permissions: ['dashboard', 'billing', 'invoice-generation', 'master'],
   },
 ];
-
-

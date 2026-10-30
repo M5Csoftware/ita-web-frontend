@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Sidebar, 
   NavPage 
@@ -29,6 +29,9 @@ import {
 import { 
   BillingCassView 
 } from '@/components/iata/BillingCassView';
+import {
+  InvoiceGenerationView
+} from '@/components/iata/InvoiceGenerationView';
 import { 
   MasterDataView 
 } from '@/components/iata/MasterDataView';
@@ -50,6 +53,13 @@ import {
   FlightManifestItem, 
   EawbMessage, 
   CassInvoice, 
+  calculateInvoiceAmounts,
+  InvoiceAuditEntry,
+  InvoiceBillingTrigger,
+  InvoiceCorrection,
+  InvoiceDraftData,
+  InvoiceDraftUpdate,
+  InvoicePayment,
   Airline, 
   Airport, 
   ShipperConsignee, 
@@ -76,6 +86,56 @@ import {
   DEFAULT_USERS
 } from '@/lib/iata-data';
 
+interface InvoiceConfiguration {
+  billingTrigger: InvoiceBillingTrigger;
+  gstRate: number;
+  sacCode: string;
+}
+
+const isStoredCassInvoice = (value: unknown): value is CassInvoice => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const invoice = value as Record<string, unknown>;
+  return typeof invoice.id === 'string' &&
+    typeof invoice.invoiceNumber === 'string' &&
+    typeof invoice.mawbNumber === 'string' &&
+    typeof invoice.customerName === 'string' &&
+    typeof invoice.date === 'string' &&
+    typeof invoice.freightCharges === 'number' &&
+    typeof invoice.fuelSurcharge === 'number' &&
+    typeof invoice.securitySurcharge === 'number' &&
+    typeof invoice.handlingCharges === 'number' &&
+    typeof invoice.subtotal === 'number' &&
+    typeof invoice.gstAmount === 'number' &&
+    typeof invoice.totalAmount === 'number' &&
+    (invoice.cassReconciliationStatus === 'RECONCILED' || invoice.cassReconciliationStatus === 'PENDING_MATCH' || invoice.cassReconciliationStatus === 'DISCREPANCY') &&
+    (invoice.paymentStatus === 'PAID' || invoice.paymentStatus === 'UNPAID' || invoice.paymentStatus === 'PARTIAL');
+};
+
+const loadInvoiceConfiguration = (): InvoiceConfiguration => {
+  const defaults: InvoiceConfiguration = { billingTrigger: 'ISSUED', gstRate: 18, sacCode: '996531' };
+  if (typeof window === 'undefined') return defaults;
+  try {
+    const stored = window.localStorage.getItem('iata_invoice_configuration');
+    if (!stored) return defaults;
+    const parsed: unknown = JSON.parse(stored);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Stored invoice configuration is invalid.');
+    const values = parsed as Record<string, unknown>;
+    const billingTrigger = values.billingTrigger === 'ISSUED' || values.billingTrigger === 'MANIFESTED' || values.billingTrigger === 'DEPARTED'
+      ? values.billingTrigger
+      : defaults.billingTrigger;
+    const gstRate = typeof values.gstRate === 'number' && Number.isFinite(values.gstRate) && values.gstRate >= 0 && values.gstRate <= 100
+      ? values.gstRate
+      : defaults.gstRate;
+    const sacCode = typeof values.sacCode === 'string' && /^[A-Za-z0-9-]{2,20}$/.test(values.sacCode)
+      ? values.sacCode
+      : defaults.sacCode;
+    return { billingTrigger, gstRate, sacCode };
+  } catch (error) {
+    console.error('Invoice configuration restore error', error);
+    return defaults;
+  }
+};
+
 export default function HomePage() {
   // Authentication & Session State
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
@@ -95,7 +155,22 @@ export default function HomePage() {
   const [mawbs, setMawbs] = useState<MawbItem[]>(INITIAL_MAWBS);
   const [manifests, setManifests] = useState<FlightManifestItem[]>(INITIAL_MANIFESTS);
   const [eawbMessages, setEawbMessages] = useState<EawbMessage[]>(INITIAL_EAWB_MESSAGES);
-  const [invoices, setInvoices] = useState<CassInvoice[]>(INITIAL_CASS_INVOICES);
+  const [invoices, setInvoices] = useState<CassInvoice[]>(() => {
+    if (typeof window === 'undefined') return INITIAL_CASS_INVOICES;
+    try {
+      const savedInvoices = window.localStorage.getItem('iata_billing_invoices');
+      if (!savedInvoices) return INITIAL_CASS_INVOICES;
+      const parsed: unknown = JSON.parse(savedInvoices);
+      if (!Array.isArray(parsed) || !parsed.every(isStoredCassInvoice)) throw new Error('Stored invoice data is invalid.');
+      return parsed;
+    } catch (error) {
+      console.error('Invoice restore error', error);
+      return INITIAL_CASS_INVOICES;
+    }
+  });
+  const [invoiceConfiguration, setInvoiceConfiguration] = useState<InvoiceConfiguration>(loadInvoiceConfiguration);
+  const { billingTrigger: invoiceBillingTrigger, gstRate: invoiceGstRate, sacCode: invoiceSacCode } = invoiceConfiguration;
+  const invoiceSequence = useRef(0);
 
   // Master Data State
   const [airlines, setAirlines] = useState<Airline[]>(IATA_AIRLINES);
@@ -105,6 +180,22 @@ export default function HomePage() {
 
   // Toast / System Notification
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('iata_billing_invoices', JSON.stringify(invoices));
+    } catch (error) {
+      console.error('Invoice save error', error);
+    }
+  }, [invoices]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('iata_invoice_configuration', JSON.stringify(invoiceConfiguration));
+    } catch (error) {
+      console.error('Invoice configuration save error', error);
+    }
+  }, [invoiceConfiguration]);
 
   const showToast = (message: string, type: 'success' | 'info' | 'error' = 'success') => {
     setNotification({ message, type });
@@ -150,7 +241,7 @@ export default function HomePage() {
                              currentUser?.role?.toLowerCase() === 'administrator' || 
                              currentUser?.username?.toLowerCase() === 'admin';
 
-  // Compute allowed tabs for the current individual user (Admin strictly has all 10; User has custom permissions)
+  // Compute allowed tabs for the current individual user (Admin has all tabs; users have custom permissions)
   const allowedTabs = useMemo(() => {
     if (!currentUser || isCurrentUserAdmin) return ALL_TAB_IDS as NavPage[];
     return getUserEffectiveTabs(currentUser) as NavPage[];
@@ -395,25 +486,6 @@ export default function HomePage() {
     };
     setMawbs((prev) => [newMawb, ...prev]);
 
-    // Create GST Invoice
-    const newInvoice: CassInvoice = {
-      id: `inv-${Date.now()}`,
-      invoiceNumber: `INV-2026-${Math.floor(1000 + Math.random() * 9000)}`,
-      mawbNumber: newMawb.mawbNumber,
-      customerName: docket.consignorName,
-      date: new Date().toISOString().split('T')[0],
-      freightCharges: docket.freightAmount,
-      fuelSurcharge: docket.fuelSurcharge,
-      securitySurcharge: docket.securitySurcharge,
-      handlingCharges: docket.docketFee,
-      subtotal: docket.subtotal,
-      gstAmount: docket.gstAmount,
-      totalAmount: docket.totalAmount,
-      cassReconciliationStatus: 'PENDING_MATCH',
-      paymentStatus: docket.paymentMode === 'PREPAID' ? 'PAID' : 'UNPAID',
-    };
-    setInvoices((prev) => [newInvoice, ...prev]);
-
     showToast(`AWB ${newMawb.mawbNumber} allocated to Docket ${docket.docketNumber}!`);
   };
 
@@ -493,25 +565,6 @@ export default function HomePage() {
     };
 
     setMawbs((prev) => [newMawb, ...prev]);
-
-    const gstAmount = parseFloat((totalCharges * 0.18).toFixed(2));
-    const newInvoice: CassInvoice = {
-      id: `inv-${Date.now()}`,
-      invoiceNumber: `INV-2026-${Math.floor(1000 + Math.random() * 9000)}`,
-      mawbNumber: newMawb.mawbNumber,
-      customerName: booking.shipperName,
-      date: new Date().toISOString().split('T')[0],
-      freightCharges: freightAmount,
-      fuelSurcharge,
-      securitySurcharge,
-      handlingCharges: 1200,
-      subtotal: totalCharges + 1200,
-      gstAmount,
-      totalAmount: totalCharges + 1200 + gstAmount,
-      cassReconciliationStatus: 'PENDING_MATCH',
-      paymentStatus: 'UNPAID',
-    };
-    setInvoices((prev) => [newInvoice, ...prev]);
 
     showToast(`MAWB ${newMawb.mawbNumber} successfully issued for Booking ${booking.bookingRef}!`);
     setActivePage('mawb');
@@ -673,10 +726,325 @@ ${hawbLines}`;
     showToast(`Cargo-IMP FHL consolidation house manifest transmitted for ${mawbNumber}.`);
   };
 
-  // --- 6. BILLING & CASS RECONCILIATION HANDLERS ---
+  // --- 6. BILLING & INVOICE WORKFLOW HANDLERS ---
+  const addInvoiceAuditEntry = (action: string, details?: string): InvoiceAuditEntry => ({
+    action,
+    actor: currentUser?.fullName ?? 'System',
+    timestamp: new Date().toISOString(),
+    details,
+  });
+
+  const handleCreateInvoiceDraft = (draft: InvoiceDraftData) => {
+    const canCreate = isCurrentUserAdmin || allowedTabs.some((tab) => ['docket', 'bookings', 'mawb'].includes(tab));
+    if (!canCreate) {
+      showToast('Only Operations or Admin can create invoice drafts.', 'error');
+      return;
+    }
+    if (!draft.shipmentDetails?.length || !draft.customerName.trim()) {
+      showToast('Select a customer and at least one shipment before creating a draft.', 'error');
+      return;
+    }
+    if (new Set(draft.shipmentDetails.map((shipment) => shipment.reference)).size !== draft.shipmentDetails.length) {
+      showToast('Each shipment can only appear once on an invoice.', 'error');
+      return;
+    }
+    if (draft.shipmentDetails.some((shipment) =>
+      !shipment.hawbNumber && draft.shipmentDetails?.some((other) =>
+        other.mawbNumber === shipment.mawbNumber && Boolean(other.hawbNumber)
+      )
+    )) {
+      showToast('Do not invoice a MAWB together with its individual HAWBs.', 'error');
+      return;
+    }
+    if (draft.chargeLines?.some((line) => !line.description.trim() || !Number.isFinite(line.amount) || line.amount < 0)) {
+      showToast('Invoice charges must have descriptions and valid non-negative amounts.', 'error');
+      return;
+    }
+    if (!Number.isFinite(draft.discountAmount ?? 0) || (draft.discountAmount ?? 0) < 0 ||
+      !Number.isFinite(draft.gstRate ?? 18) || (draft.gstRate ?? 18) < 0 || (draft.gstRate ?? 18) > 100 ||
+      draft.shipmentDetails.some((shipment) => shipment.buyingAmount !== undefined &&
+        (!Number.isFinite(shipment.buyingAmount) || shipment.buyingAmount < 0))) {
+      showToast('Discount, GST rate and airline buying costs must be valid non-negative values.', 'error');
+      return;
+    }
+
+    const references = draft.shipmentDetails;
+    const eligibleStatuses = invoiceBillingTrigger === 'DEPARTED'
+      ? ['DEPARTED']
+      : invoiceBillingTrigger === 'MANIFESTED'
+        ? ['MANIFESTED', 'DEPARTED']
+        : ['ISSUED', 'MANIFESTED', 'DEPARTED'];
+    const hasInvalidShipment = references.some((reference) => {
+      const mawb = mawbs.find((item) => item.mawbNumber === reference.mawbNumber);
+      if (!mawb || !eligibleStatuses.includes(mawb.status)) return true;
+      if (reference.hawbNumber) {
+        const hawb = mawb.hawbs.find((item) => item.hawbNumber === reference.hawbNumber);
+        const correctStatus = hawb && eligibleStatuses.includes(hawb.status);
+        const expectedCustomer = draft.billToParty === 'AGENT'
+          ? agentProfile.name
+          : draft.billToParty === 'CONSIGNEE'
+            ? hawb?.consigneeName
+            : hawb?.shipperName;
+        return !correctStatus || expectedCustomer !== draft.customerName;
+      }
+      const expectedCustomer = draft.billToParty === 'AGENT'
+        ? agentProfile.name
+        : draft.billToParty === 'CONSIGNEE'
+          ? mawb.consigneeName
+          : mawb.shipperName;
+      return expectedCustomer !== draft.customerName;
+    });
+    const alreadyBilled = references.some((reference) =>
+      invoices.some((invoice) => {
+        if (!invoice.shipmentDetails?.length) return invoice.mawbNumber === reference.mawbNumber;
+        return invoice.shipmentDetails.some((billed) =>
+          billed.mawbNumber === reference.mawbNumber &&
+          (billed.reference === reference.reference ||
+            billed.reference === `MAWB:${reference.mawbNumber}` ||
+            !reference.hawbNumber)
+        );
+      })
+    );
+    if (hasInvalidShipment || alreadyBilled) {
+      showToast('One or more selected shipments are ineligible or already billed. Refresh the invoice draft and try again.', 'error');
+      return;
+    }
+
+    const lines = draft.chargeLines ?? [];
+    const amounts = calculateInvoiceAmounts(lines, draft.discountAmount ?? 0, draft.gstRate ?? 18, draft.gstType ?? 'IGST');
+    const newInvoice: CassInvoice = {
+      ...draft,
+      ...amounts,
+      freightCharges: lines.find((line) => line.id === 'freight')?.amount ?? 0,
+      fuelSurcharge: lines.find((line) => line.id === 'fuel')?.amount ?? 0,
+      securitySurcharge: lines.find((line) => line.id === 'security')?.amount ?? 0,
+      handlingCharges: lines.find((line) => line.id === 'handling')?.amount ?? 0,
+      id: `inv-${Date.now()}`,
+      invoiceNumber: '',
+      auditLog: [...(draft.auditLog ?? []), addInvoiceAuditEntry('DRAFT_CREATED', `${references.length} shipment(s) selected`)],
+    };
+    setInvoices((previous) => [newInvoice, ...previous]);
+    showToast(`Draft created for ${draft.customerName}; no invoice number is assigned until approval.`);
+  };
+
+  const handleChangeInvoiceBillingTrigger = (trigger: InvoiceBillingTrigger) => {
+    if (!isCurrentUserAdmin) {
+      showToast('Only Admin can change the invoice billing trigger.', 'error');
+      return;
+    }
+    setInvoiceConfiguration((current) => ({ ...current, billingTrigger: trigger }));
+    showToast(`Billing trigger set to ${trigger.toLowerCase()}.`);
+  };
+
+  const handleChangeInvoiceGstRate = (rate: number) => {
+    if (!isCurrentUserAdmin || !Number.isFinite(rate) || rate < 0 || rate > 100) {
+      showToast('Only Admin can set a valid GST rate from 0 to 100%.', 'error');
+      return;
+    }
+    setInvoiceConfiguration((current) => ({ ...current, gstRate: rate }));
+  };
+
+  const handleChangeInvoiceSacCode = (code: string) => {
+    if (!isCurrentUserAdmin || !/^[A-Za-z0-9-]{2,20}$/.test(code)) {
+      showToast('Only Admin can set a valid SAC code.', 'error');
+      return;
+    }
+    setInvoiceConfiguration((current) => ({ ...current, sacCode: code }));
+  };
+
+  const handleUpdateInvoiceDraft = (id: string, updates: InvoiceDraftUpdate) => {
+    const canEditDraft = isCurrentUserAdmin || allowedTabs.some((tab) => ['docket', 'bookings', 'mawb'].includes(tab));
+    if (!canEditDraft) {
+      showToast('Only Operations or Admin can edit invoice drafts.', 'error');
+      return;
+    }
+    const invoice = invoices.find((item) => item.id === id);
+    if (!invoice || (invoice.invoiceStatus ?? 'SENT') !== 'DRAFT') {
+      showToast('Only editable drafts can be changed.', 'error');
+      return;
+    }
+    const lines = updates.chargeLines ?? invoice.chargeLines ?? [];
+    const discountAmount = updates.discountAmount ?? invoice.discountAmount ?? 0;
+    const gstRate = updates.gstRate ?? invoice.gstRate ?? 18;
+    const gstType = updates.gstType ?? invoice.gstType ?? 'IGST';
+    if (lines.some((line) => !line.description.trim() || !Number.isFinite(line.amount) || line.amount < 0) ||
+      !Number.isFinite(discountAmount) || discountAmount < 0 ||
+      !Number.isFinite(gstRate) || gstRate < 0 || gstRate > 100) {
+      showToast('Invoice charges, discount and GST rate must be valid non-negative values.', 'error');
+      return;
+    }
+    const amounts = calculateInvoiceAmounts(lines, discountAmount, gstRate, gstType);
+    const calculatedUpdates: InvoiceDraftUpdate = {
+      ...updates,
+      ...amounts,
+      freightCharges: lines.find((line) => line.id === 'freight')?.amount ?? 0,
+      fuelSurcharge: lines.find((line) => line.id === 'fuel')?.amount ?? 0,
+      securitySurcharge: lines.find((line) => line.id === 'security')?.amount ?? 0,
+      handlingCharges: lines.find((line) => line.id === 'handling')?.amount ?? 0,
+    };
+    setInvoices((previous) => previous.map((item) => item.id === id
+      ? { ...item, ...calculatedUpdates, auditLog: [...(item.auditLog ?? []), addInvoiceAuditEntry('DRAFT_UPDATED')] }
+      : item
+    ));
+    showToast('Invoice draft updated.');
+  };
+
+  const handleApproveInvoice = (id: string) => {
+    if (!isCurrentUserAdmin && !allowedTabs.includes('billing')) {
+      showToast('Only Accounts or Admin can approve and number invoices.', 'error');
+      return;
+    }
+    const invoice = invoices.find((item) => item.id === id);
+    if (!invoice || invoice.invoiceStatus !== 'DRAFT') {
+      showToast('Only an unnumbered draft can be approved.', 'error');
+      return;
+    }
+
+    const now = new Date();
+    const fiscalStartYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+    const fiscalYear = `FY${fiscalStartYear}-${String(fiscalStartYear + 1).slice(-2)}`;
+    const numberPrefix = `INV-ITA-${fiscalYear}-`;
+    const lastNumber = invoices.reduce((max, existing) => {
+      if (!existing.invoiceNumber.startsWith(numberPrefix)) return max;
+      const sequence = Number(existing.invoiceNumber.slice(numberPrefix.length));
+      return Number.isInteger(sequence) ? Math.max(max, sequence) : max;
+    }, 0);
+    const nextSequence = Math.max(lastNumber, invoiceSequence.current) + 1;
+    invoiceSequence.current = nextSequence;
+    const invoiceNumber = `${numberPrefix}${String(nextSequence).padStart(4, '0')}`;
+    const date = now.toISOString().slice(0, 10);
+    setInvoices((previous) => previous.map((item) => item.id === id
+      ? {
+          ...item,
+          invoiceNumber,
+          date,
+          invoiceStatus: 'APPROVED',
+          balanceDue: item.totalAmount,
+          auditLog: [...(item.auditLog ?? []), addInvoiceAuditEntry('APPROVED', `Number assigned: ${invoiceNumber}`)],
+        }
+      : item
+    ));
+    showToast(`Invoice ${invoiceNumber} approved and posted to receivables.`);
+  };
+
+  const handleSendInvoice = (id: string) => {
+    if (!isCurrentUserAdmin && !allowedTabs.includes('billing')) {
+      showToast('Only Accounts or Admin can issue an invoice.', 'error');
+      return;
+    }
+    setInvoices((previous) => previous.map((invoice) => invoice.id === id && invoice.invoiceStatus === 'APPROVED'
+      ? { ...invoice, invoiceStatus: 'SENT', auditLog: [...(invoice.auditLog ?? []), addInvoiceAuditEntry('SENT')] }
+      : invoice
+    ));
+    showToast('Invoice delivery recorded.');
+  };
+
+  const handleRegisterInvoicePayment = (id: string, payment: Omit<InvoicePayment, 'id' | 'date'>) => {
+    if (!isCurrentUserAdmin && !allowedTabs.includes('billing')) {
+      showToast('Only Accounts or Admin can allocate customer payments.', 'error');
+      return;
+    }
+    const invoice = invoices.find((item) => item.id === id);
+    if (!invoice || !['APPROVED', 'SENT', 'PARTIALLY_PAID'].includes(invoice.invoiceStatus ?? 'SENT')) {
+      showToast('Receipts can only be allocated to approved invoices.', 'error');
+      return;
+    }
+    const balanceDue = invoice.balanceDue ?? invoice.totalAmount;
+    if (!Number.isFinite(payment.amount) || !Number.isFinite(payment.tdsAmount) ||
+      payment.amount <= 0 || payment.tdsAmount < 0 || payment.amount + payment.tdsAmount > balanceDue) {
+      showToast('Payment and TDS allocation must be positive and cannot exceed the outstanding balance.', 'error');
+      return;
+    }
+    const receipt: InvoicePayment = {
+      ...payment,
+      id: `rcpt-${Date.now()}`,
+      date: new Date().toISOString().slice(0, 10),
+    };
+    const newBalance = Number((balanceDue - receipt.amount - receipt.tdsAmount).toFixed(2));
+    const nextStatus = newBalance === 0 ? 'PAID' : 'PARTIALLY_PAID';
+    setInvoices((previous) => previous.map((item) => item.id === id
+      ? {
+          ...item,
+          payments: [...(item.payments ?? []), receipt],
+          balanceDue: newBalance,
+          paymentStatus: nextStatus === 'PAID' ? 'PAID' : 'PARTIAL',
+          invoiceStatus: nextStatus,
+          auditLog: [...(item.auditLog ?? []), addInvoiceAuditEntry('PAYMENT_ALLOCATED', `${receipt.mode}: ${receipt.amount}; TDS: ${receipt.tdsAmount}`)],
+        }
+      : item
+    ));
+    showToast(newBalance === 0 ? 'Invoice fully settled.' : `Payment recorded. ${newBalance.toFixed(2)} remains outstanding.`);
+  };
+
+  const handleCancelInvoice = (id: string, reason: string) => {
+    if (!isCurrentUserAdmin && !allowedTabs.includes('billing')) {
+      showToast('Only Accounts or Admin can cancel invoices.', 'error');
+      return;
+    }
+    if (!reason.trim()) {
+      showToast('A cancellation reason is required.', 'error');
+      return;
+    }
+    const invoice = invoices.find((item) => item.id === id);
+    if (!invoice || invoice.invoiceStatus === 'CANCELLED') {
+      showToast('This invoice is already cancelled or unavailable.', 'error');
+      return;
+    }
+    setInvoices((previous) => previous.map((item) => item.id === id
+      ? {
+          ...item,
+          invoiceStatus: 'CANCELLED',
+          cancellationReason: reason.trim(),
+          auditLog: [...(item.auditLog ?? []), addInvoiceAuditEntry('CANCELLED', reason.trim())],
+        }
+      : item
+    ));
+    showToast('Invoice cancelled. Its number remains reserved and the audit reason was recorded.');
+  };
+
+  const handleAddInvoiceCorrection = (id: string, correction: Omit<InvoiceCorrection, 'id' | 'number' | 'date'>) => {
+    if (!isCurrentUserAdmin && !allowedTabs.includes('billing')) {
+      showToast('Only Accounts or Admin can issue credit or debit notes.', 'error');
+      return;
+    }
+    const invoice = invoices.find((item) => item.id === id);
+    if (!invoice || !invoice.invoiceNumber || ['DRAFT', 'CANCELLED'].includes(invoice.invoiceStatus ?? 'SENT')) {
+      showToast('Corrections require an approved, non-cancelled invoice.', 'error');
+      return;
+    }
+    if (!correction.reason.trim() || !Number.isFinite(correction.amount) || correction.amount <= 0) {
+      showToast('Enter a valid correction amount and reason.', 'error');
+      return;
+    }
+    const date = new Date().toISOString().slice(0, 10);
+    const prefix = correction.type === 'CREDIT_NOTE' ? 'CN' : 'DN';
+    const correctionNumber = `${prefix}-${invoice.invoiceNumber}-${(invoice.corrections?.length ?? 0) + 1}`;
+    const recordedCorrection: InvoiceCorrection = {
+      ...correction,
+      id: `corr-${Date.now()}`,
+      number: correctionNumber,
+      date,
+    };
+    setInvoices((previous) => previous.map((item) => item.id === id
+      ? {
+          ...item,
+          corrections: [...(item.corrections ?? []), recordedCorrection],
+          auditLog: [...(item.auditLog ?? []), addInvoiceAuditEntry(correction.type, `${correctionNumber}: ${correction.reason}`)],
+        }
+      : item
+    ));
+    showToast(`${correctionNumber} recorded with reason.`);
+  };
+
   const handleMarkInvoicePaid = (id: string) => {
     setInvoices((prev) =>
-      prev.map((inv) => (inv.id === id ? { ...inv, paymentStatus: 'PAID' } : inv))
+      prev.map((inv) => (inv.id === id ? {
+        ...inv,
+        paymentStatus: 'PAID',
+        invoiceStatus: inv.invoiceStatus ? 'PAID' : inv.invoiceStatus,
+        balanceDue: 0,
+        auditLog: [...(inv.auditLog ?? []), addInvoiceAuditEntry('PAYMENT_RECONCILED')],
+      } : inv))
     );
     showToast(`Invoice payment reconciled.`);
   };
@@ -854,6 +1222,32 @@ ${hawbLines}`;
               invoices={invoices}
               onMarkInvoicePaid={handleMarkInvoicePaid}
               onReconcileCass={handleReconcileCass}
+            />
+          )}
+
+          {effectiveActivePage === 'invoice-generation' && allowedTabs.includes('invoice-generation') && (
+            <InvoiceGenerationView
+              invoices={invoices}
+              mawbs={mawbs}
+              partners={partners}
+              agentProfile={agentProfile}
+              canCreateDraft={isCurrentUserAdmin || allowedTabs.some((tab) => ['docket', 'bookings', 'mawb'].includes(tab))}
+              canApproveInvoices={isCurrentUserAdmin || allowedTabs.includes('billing')}
+              canManageBillingSettings={isCurrentUserAdmin}
+              actor={currentUser.fullName}
+              defaultGstRate={invoiceGstRate}
+              sacCode={invoiceSacCode}
+              billingTrigger={invoiceBillingTrigger}
+              onCreateDraft={handleCreateInvoiceDraft}
+              onUpdateDraft={handleUpdateInvoiceDraft}
+              onApproveInvoice={handleApproveInvoice}
+              onSendInvoice={handleSendInvoice}
+              onRegisterPayment={handleRegisterInvoicePayment}
+              onCancelInvoice={handleCancelInvoice}
+              onAddCorrection={handleAddInvoiceCorrection}
+              onBillingTriggerChange={handleChangeInvoiceBillingTrigger}
+              onGstRateChange={handleChangeInvoiceGstRate}
+              onSacCodeChange={handleChangeInvoiceSacCode}
             />
           )}
 
