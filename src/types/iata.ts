@@ -62,6 +62,7 @@ export type NavPageId =
   | 'manifest' 
   | 'eawb' 
   | 'billing' 
+  | 'invoice-generation'
   | 'master' 
   | 'settings';
 
@@ -74,6 +75,7 @@ export const ALL_TAB_IDS: NavPageId[] = [
   'manifest', 
   'eawb', 
   'billing', 
+  'invoice-generation',
   'master', 
   'settings'
 ];
@@ -97,7 +99,7 @@ export function getUserEffectiveTabs(user: UserAccount | null): NavPageId[] {
   if (!user) return ALL_TAB_IDS;
   const role = (user.role || '').toLowerCase();
   const uname = (user.username || '').toLowerCase();
-  // Admin strictly has complete access to all 10 modules under any circumstances
+  // Admin strictly has complete access to all modules under any circumstances
   if (role === 'admin' || role === 'administrator' || uname === 'admin') {
     return ALL_TAB_IDS;
   }
@@ -278,6 +280,123 @@ export interface CassInvoice {
   totalAmount: number;
   cassReconciliationStatus: 'RECONCILED' | 'PENDING_MATCH' | 'DISCREPANCY';
   paymentStatus: 'PAID' | 'UNPAID' | 'PARTIAL';
+  invoiceStatus?: InvoiceStatus;
+  shipmentDetails?: InvoiceShipmentReference[];
+  billToParty?: 'SHIPPER' | 'CONSIGNEE' | 'AGENT';
+  customerAddress?: string;
+  customerGstId?: string;
+  sacCode?: string;
+  dueDate?: string;
+  chargeLines?: InvoiceChargeLine[];
+  discountAmount?: number;
+  gstRate?: number;
+  gstType?: 'CGST_SGST' | 'IGST' | 'ZERO_RATED' | 'UNREGISTERED';
+  cgstAmount?: number;
+  sgstAmount?: number;
+  igstAmount?: number;
+  remarks?: string;
+  balanceDue?: number;
+  payments?: InvoicePayment[];
+  corrections?: InvoiceCorrection[];
+  cancellationReason?: string;
+  auditLog?: InvoiceAuditEntry[];
+}
+
+export type InvoiceStatus = 'DRAFT' | 'APPROVED' | 'SENT' | 'PARTIALLY_PAID' | 'PAID' | 'CANCELLED';
+export type InvoiceBillingTrigger = 'ISSUED' | 'MANIFESTED' | 'DEPARTED';
+
+export interface InvoiceShipmentReference {
+  reference: string;
+  mawbNumber: string;
+  hawbNumber?: string;
+  flightNumber?: string;
+  flightDate?: string;
+  origin: string;
+  destination: string;
+  pieces: number;
+  grossWeightKg: number;
+  chargeableWeightKg: number;
+  buyingAmount?: number;
+  sellingAmount?: number;
+}
+
+export interface InvoiceChargeLine {
+  id: string;
+  description: string;
+  amount: number;
+  overrideReason?: string;
+}
+
+export interface InvoicePayment {
+  id: string;
+  date: string;
+  amount: number;
+  mode: 'CASH' | 'CHEQUE' | 'BANK_TRANSFER' | 'UPI';
+  tdsAmount: number;
+  reference?: string;
+}
+
+export interface InvoiceCorrection {
+  id: string;
+  type: 'CREDIT_NOTE' | 'DEBIT_NOTE';
+  number: string;
+  amount: number;
+  reason: string;
+  date: string;
+}
+
+export interface InvoiceAuditEntry {
+  action: string;
+  actor: string;
+  timestamp: string;
+  details?: string;
+}
+
+export type InvoiceDraftData = Omit<CassInvoice, 'id' | 'invoiceNumber'>;
+
+export type InvoiceDraftUpdate = Partial<
+  Pick<
+    CassInvoice,
+    | 'chargeLines'
+    | 'discountAmount'
+    | 'gstRate'
+    | 'gstType'
+    | 'subtotal'
+    | 'gstAmount'
+    | 'cgstAmount'
+    | 'sgstAmount'
+    | 'igstAmount'
+    | 'totalAmount'
+    | 'freightCharges'
+    | 'fuelSurcharge'
+    | 'securitySurcharge'
+    | 'handlingCharges'
+    | 'remarks'
+    | 'dueDate'
+  >
+>;
+
+export function calculateInvoiceAmounts(
+  lines: InvoiceChargeLine[],
+  discountAmount: number,
+  gstRate: number,
+  gstType: NonNullable<CassInvoice['gstType']>,
+) {
+  const subtotal = lines.reduce((sum, line) => sum + Math.max(0, Number(line.amount) || 0), 0);
+  const taxableAmount = Math.max(0, subtotal - Math.max(0, discountAmount));
+  const effectiveRate = gstType === 'ZERO_RATED' ? 0 : Math.max(0, gstRate);
+  const gstAmount = Number((taxableAmount * effectiveRate / 100).toFixed(2));
+  const cgstAmount = gstType === 'CGST_SGST' ? Number((gstAmount / 2).toFixed(2)) : 0;
+  const sgstAmount = gstType === 'CGST_SGST' ? Number((gstAmount - cgstAmount).toFixed(2)) : 0;
+  const igstAmount = gstType === 'IGST' || gstType === 'UNREGISTERED' ? gstAmount : 0;
+  return {
+    subtotal,
+    gstAmount,
+    cgstAmount,
+    sgstAmount,
+    igstAmount,
+    totalAmount: Number((taxableAmount + gstAmount).toFixed(2)),
+  };
 }
 
 // IATA Resolution 600b Modulo-7 check digit validator
@@ -302,4 +421,3 @@ export function calculateVolumetricWeight(dimensions: DimensionEntry[]): number 
   );
   return parseFloat((totalCm3 / 6000).toFixed(2));
 }
-

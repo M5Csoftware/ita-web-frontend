@@ -53,6 +53,7 @@ export const ALL_SIDEBAR_TABS: { id: NavPageId; label: string; icon: React.Eleme
   { id: 'manifest', label: 'Flight Manifest', icon: PlaneTakeoff, description: 'Flight-wise consolidation & handover lock' },
   { id: 'eawb', label: 'e-AWB EDI', icon: Send, description: 'Cargo-IMP FWB/FHL teletype dispatch' },
   { id: 'billing', label: 'Rates & CASS', icon: Receipt, description: 'Tariff slabs, 18% GST & CASS clearing' },
+  { id: 'invoice-generation', label: 'Invoice Generation', icon: ReceiptText, description: 'Invoice workflow, receivables & payment tracking' },
   { id: 'master', label: 'Master Data', icon: Building2, description: 'Airlines, airports, partners & issuing agent' },
   { id: 'settings', label: 'Settings', icon: Settings, description: 'User management & individual access control' },
 ];
@@ -110,7 +111,7 @@ export const SettingsPermissionsView: React.FC<SettingsPermissionsViewProps> = (
   const handleAllowAllForUser = (targetUser: UserAccount) => {
     if (targetUser.role === 'admin' || targetUser.username.toLowerCase() === 'admin') return;
     onUpdateUserPermissions(targetUser.id, ALL_TAB_IDS);
-    triggerNotice(`Enabled all 10 sidebar modules for ${targetUser.username}`);
+    triggerNotice(`Enabled all ${ALL_SIDEBAR_TABS.length} sidebar modules for ${targetUser.username}`);
   };
 
   // Clear all tabs for a specific user
@@ -558,7 +559,7 @@ export const SettingsPermissionsView: React.FC<SettingsPermissionsViewProps> = (
                     />
                     <div>
                       <span className="font-bold text-xs text-slate-900 block">👑 Admin</span>
-                      <span className="text-[11px] text-slate-500">Strictly all 10 modules</span>
+                      <span className="text-[11px] text-slate-500">Strictly all {ALL_SIDEBAR_TABS.length} modules</span>
                     </div>
                   </label>
                 </div>
