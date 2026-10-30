@@ -193,11 +193,11 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
       {/* Header Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-6">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900 tracking-tight font-heading">
-            Cargo Docket & Consignment Note
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight font-heading">
+            Create Cargo Docket & Consignment Note
           </h1>
-          <p className="text-base text-slate-500 mt-2 font-sans">
-            Counter shipment intake, dimensional volumetric cubing (L×W×H÷6000), statutory E-Way bill mapping, and AWB allocation.
+          <p className="text-sm sm:text-base text-slate-500 mt-1 font-sans">
+            Shipment counter intake, dimensional cubing (L×W×H÷6000), E-Way bill mapping, and AWB link
           </p>
         </div>
 

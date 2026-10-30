@@ -69,30 +69,25 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
   });
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 animate-in fade-in duration-300">
       
-      {/* Header Description */}
-      <div className="bg-white border border-slate-200/90 rounded-2xl p-7 shadow-xs">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="p-2.5 rounded-xl bg-[#2C5EAD]/10 text-[#2C5EAD]">
-            <Boxes className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold font-heading text-slate-900">
-              IATA Resolution 600b AWB Stock Management
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-500 font-medium">
-              Airline-wise AWB serial entry with automated Modulo-7 check-digit validation. Voided serials are permanently locked.
-            </p>
-          </div>
+      {/* Top Header Banner */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-6">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight font-heading">
+            AWB Stock Management (Res 600b)
+          </h1>
+          <p className="text-sm sm:text-base text-slate-500 mt-1 font-sans">
+            IATA Resolution 600b Mod-7 check digit generator, airline stock series, and audit-locked void control
+          </p>
         </div>
+      </div>
 
-        {/* IATA Modulo 7 Rule Explainer Box */}
-        <div className="mt-4 p-4 rounded-xl bg-blue-50/70 border border-blue-200/80 text-xs text-blue-900 flex items-start gap-3">
-          <ShieldCheck className="w-5 h-5 text-[#2C5EAD] shrink-0 mt-0.5" />
-          <div className="leading-relaxed">
-            <strong>IATA Modulo-7 Standard Algorithm:</strong> An official IATA Air Waybill number contains an 11-digit structure (3-digit airline prefix + 8-digit serial). The 8th digit is an algorithmic check-digit calculated as: <code className="bg-white px-1.5 py-0.5 rounded font-mono font-bold text-[#2C5EAD]">Check Digit = First 7 Digits mod 7</code>.
-          </div>
+      {/* IATA Modulo 7 Rule Explainer Box */}
+      <div className="p-4 rounded-xl bg-blue-50/70 border border-blue-200/80 text-xs sm:text-sm text-blue-900 flex items-start gap-3">
+        <ShieldCheck className="w-5 h-5 text-[#2C5EAD] shrink-0 mt-0.5" />
+        <div className="leading-relaxed">
+          <strong>IATA Modulo-7 Standard Algorithm:</strong> An official IATA Air Waybill number contains an 11-digit structure (3-digit airline prefix + 8-digit serial). The 8th digit is an algorithmic check-digit calculated as: <code className="bg-white px-1.5 py-0.5 rounded font-mono font-bold text-[#2C5EAD]">Check Digit = First 7 Digits mod 7</code>.
         </div>
       </div>
 

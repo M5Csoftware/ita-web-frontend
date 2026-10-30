@@ -87,22 +87,17 @@ export const AwbConsolidationView: React.FC<AwbConsolidationViewProps> = ({
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 animate-in fade-in duration-300">
       
-      {/* Header */}
-      <div className="bg-white border border-slate-200/90 rounded-2xl p-7 shadow-xs">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-[#2C5EAD]/10 text-[#2C5EAD]">
-            <Layers className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold font-heading text-slate-900">
-              Master AWB (MAWB) &amp; House Consolidation (HAWB)
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-500 font-medium">
-              IATA Resolution 600b standard layout, groupage consolidation, weight parity reconciliation, and multi-copy printing.
-            </p>
-          </div>
+      {/* Top Header Banner */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-6">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight font-heading">
+            MAWB &amp; HAWB Consolidation
+          </h1>
+          <p className="text-sm sm:text-base text-slate-500 mt-1 font-sans">
+            Master AWB issuing, House AWB groupage consolidation, weight parity checks, and Original 1/2/3 multi-copy print
+          </p>
         </div>
       </div>
 

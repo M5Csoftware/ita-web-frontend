@@ -58,22 +58,17 @@ export const EawbMessagingView: React.FC<EawbMessagingViewProps> = ({
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 animate-in fade-in duration-300">
       
-      {/* Top Banner */}
-      <div className="bg-white border border-slate-200/90 rounded-2xl p-7 shadow-xs">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-[#2C5EAD]/10 text-[#2C5EAD]">
-            <Radio className="w-5 h-5 text-[#2C5EAD]" />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold font-heading text-slate-900">
-              e-AWB EDI Messaging &amp; Airline Telecommunications
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-500 font-medium">
-              Cargo-IMP &amp; IATA Cargo-XML protocol engine: FWB (Master Waybill), FHL (House Manifest), FFM (Flight Manifest), and FSU (Status Updates).
-            </p>
-          </div>
+      {/* Top Header Banner */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-6">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight font-heading">
+            e-AWB EDI Messaging Center
+          </h1>
+          <p className="text-sm sm:text-base text-slate-500 mt-1 font-sans">
+            Direct airline EDI teletype feed, Cargo-IMP FWB/FHL dispatch, and FSU status updates
+          </p>
         </div>
       </div>
 

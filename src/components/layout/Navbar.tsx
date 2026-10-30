@@ -4,12 +4,14 @@ import React from 'react';
 import { 
   Menu, 
   Search, 
-  Bell,
-  Plane,
-  ShieldCheck,
-  Radio
+  Bell, 
+  Plane, 
+  ShieldCheck, 
+  Radio,
+  LogOut
 } from 'lucide-react';
 import { NavPage } from './Sidebar';
+import { UserAccount } from '@/types/iata';
 
 interface NavbarProps {
   activePage?: NavPage;
@@ -17,6 +19,8 @@ interface NavbarProps {
   searchQuery: string;
   onSearchChange: (q: string) => void;
   stationCode?: string;
+  currentUser?: UserAccount | null;
+  onLogout?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -24,6 +28,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   searchQuery,
   onSearchChange,
   stationCode = 'DEL / BOM',
+  currentUser,
+  onLogout,
 }) => {
   return (
     <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 text-slate-900 shadow-xs">
@@ -67,10 +73,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           </div>
 
-          {/* Right: EDI Gateway Status & Notifications */}
+          {/* Right: EDI Gateway Status, User & Logout */}
           <div className="flex items-center gap-3 shrink-0">
             {/* EDI Gateway Status */}
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-800">
+            <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-800">
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
@@ -87,6 +93,31 @@ export const Navbar: React.FC<NavbarProps> = ({
               <Bell className="w-5 h-5" />
               <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[#1591DC]"></span>
             </button>
+
+            {/* Current User Pill & Quick Logout */}
+            {currentUser && (
+              <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
+                <div className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+                  <div className="w-6 h-6 rounded-lg bg-gradient-to-tr from-[#2C5EAD] to-[#1591DC] text-white flex items-center justify-center font-bold text-[10px] uppercase">
+                    {currentUser.username.slice(0, 2)}
+                  </div>
+                  <div className="text-left">
+                    <span className="font-bold text-slate-900 block leading-tight">{currentUser.fullName.split(' ')[0]}</span>
+                    <span className="text-[10px] text-[#2C5EAD] font-semibold font-mono block leading-none">{currentUser.role}</span>
+                  </div>
+                </div>
+
+                {onLogout && (
+                  <button
+                    onClick={onLogout}
+                    className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                    title="Sign Out of Station"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
         </div>

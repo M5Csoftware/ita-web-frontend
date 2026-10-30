@@ -75,33 +75,26 @@ export const ManifestView: React.FC<ManifestViewProps> = ({
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 animate-in fade-in duration-300">
       
-      {/* Top Banner */}
-      <div className="bg-white border border-slate-200/90 rounded-2xl p-7 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-[#2C5EAD]/10 text-[#2C5EAD]">
-              <Plane className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold font-heading text-slate-900">
-                Flight Allocation &amp; Cargo Manifest (FFM)
-              </h2>
-              <p className="text-xs sm:text-sm text-slate-500 font-medium">
-                Assemble flight-wise manifests of MAWBs and HAWBs. Finalizing manifests locks consignment records and triggers airline uplift.
-              </p>
-            </div>
-          </div>
-
-          <button
-            onClick={() => setIsCreateModalOpen(true)}
-            className="px-4 py-2.5 bg-[#2C5EAD] hover:bg-[#234c8d] text-white font-bold font-heading rounded-xl text-xs sm:text-sm shadow-sm flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Assemble Flight Manifest</span>
-          </button>
+      {/* Top Header Banner */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-6">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight font-heading">
+            Flight Manifests (FFM)
+          </h1>
+          <p className="text-sm sm:text-base text-slate-500 mt-1 font-sans">
+            Flight allocation, cargo manifest generation, gross weight reconciliation, and departure lock
+          </p>
         </div>
+
+        <button
+          onClick={() => setIsCreateModalOpen(true)}
+          className="px-5 py-2.5 bg-[#2C5EAD] hover:bg-[#204580] text-white rounded-xl text-sm font-bold font-heading flex items-center gap-2 transition-all shadow-md shadow-[#2C5EAD]/20 self-start md:self-auto"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Assemble Flight Manifest</span>
+        </button>
       </div>
 
       {/* Flight Manifests Table */}
