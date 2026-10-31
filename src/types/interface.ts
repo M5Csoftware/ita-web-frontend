@@ -1,6 +1,6 @@
 export type InterfaceType = 'REST_API' | 'WEBHOOK' | 'SFTP' | 'EDI' | 'KAFKA' | 'GRAPHQL';
 
-export type InterfaceStatus = 'healthy' | 'degraded' | 'down' | 'maintenance';
+export type InterfaceStatus = 'unknown' | 'healthy' | 'degraded' | 'down' | 'maintenance';
 
 export type Direction = 'inbound' | 'outbound' | 'bidirectional';
 
@@ -52,4 +52,3 @@ export interface InterfaceFilter {
   status: string;
   environment: string;
 }
-

@@ -24,13 +24,13 @@ export const BookingView: React.FC<BookingViewProps> = ({
 }) => {
   const [shipper, setShipper] = useState('');
   const [consignee, setConsignee] = useState('');
-  const [origin, setOrigin] = useState('DEL');
-  const [destination, setDestination] = useState('FRA');
-  const [actualWeight, setActualWeight] = useState(150);
-  const [natureOfGoods, setNatureOfGoods] = useState('Electronic Telecommunication Equipment');
+  const [origin, setOrigin] = useState('');
+  const [destination, setDestination] = useState('');
+  const [actualWeight, setActualWeight] = useState(0);
+  const [natureOfGoods, setNatureOfGoods] = useState('');
   const [handlingCode, setHandlingCode] = useState<SpecialHandlingCode>('GEN');
   const [dimensions, setDimensions] = useState<DimensionEntry[]>([
-    { lengthCm: 100, widthCm: 80, heightCm: 60, pieces: 2 },
+    { lengthCm: 0, widthCm: 0, heightCm: 0, pieces: 0 },
   ]);
   const [successNotice, setSuccessNotice] = useState('');
 
@@ -40,7 +40,7 @@ export const BookingView: React.FC<BookingViewProps> = ({
   const chargeableWeight = Math.max(actualWeight, volumetricWeight);
 
   const handleAddDimensionRow = () => {
-    setDimensions([...dimensions, { lengthCm: 50, widthCm: 50, heightCm: 50, pieces: 1 }]);
+    setDimensions([...dimensions, { lengthCm: 0, widthCm: 0, heightCm: 0, pieces: 0 }]);
   };
 
   const handleRemoveDimensionRow = (index: number) => {

@@ -47,8 +47,8 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
   const [statusFilter, setStatusFilter] = useState('ALL');
 
   // Form State
-  const [origin, setOrigin] = useState('DEL');
-  const [destination, setDestination] = useState('FRA');
+  const [origin, setOrigin] = useState('');
+  const [destination, setDestination] = useState('');
   const [serviceMode, setServiceMode] = useState<DocketServiceMode>('EXPRESS_AIR');
   const [paymentMode, setPaymentMode] = useState<DocketPaymentMode>('ON_ACCOUNT');
   
@@ -64,18 +64,18 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
   const [consigneeGst, setConsigneeGst] = useState('');
 
   // Package & Commodities
-  const [packageType, setPackageType] = useState('Carton / Box');
-  const [natureOfGoods, setNatureOfGoods] = useState('Industrial High-Precision Equipment');
+  const [packageType, setPackageType] = useState('');
+  const [natureOfGoods, setNatureOfGoods] = useState('');
   const [handlingCode, setHandlingCode] = useState<SpecialHandlingCode>('GEN');
-  const [declaredValue, setDeclaredValue] = useState(250000);
+  const [declaredValue, setDeclaredValue] = useState(0);
   const [ewayBillNumber, setEwayBillNumber] = useState('');
-  const [ratePerKg, setRatePerKg] = useState(195);
-  const [docketFee, setDocketFee] = useState(250);
+  const [ratePerKg, setRatePerKg] = useState(0);
+  const [docketFee, setDocketFee] = useState(0);
 
   // Dimensions & Weight
-  const [actualWeightKg, setActualWeightKg] = useState(120);
+  const [actualWeightKg, setActualWeightKg] = useState(0);
   const [dimensions, setDimensions] = useState<DimensionEntry[]>([
-    { lengthCm: 80, widthCm: 60, heightCm: 50, pieces: 2 },
+    { lengthCm: 0, widthCm: 0, heightCm: 0, pieces: 0 },
   ]);
 
   // Modals
@@ -344,7 +344,7 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                   <input
                     type="text"
                     required
-                    placeholder="e.g. AeroTech Precision Parts Ltd"
+                    placeholder="Enter company name"
                     value={consignorName}
                     onChange={(e) => setConsignorName(e.target.value)}
                     className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm"

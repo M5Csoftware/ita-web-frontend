@@ -72,18 +72,9 @@ import {
   calculateIataMod7CheckDigit
 } from '@/types/iata';
 import { 
-  INITIAL_AWB_STOCK, 
-  INITIAL_BOOKINGS, 
-  INITIAL_DOCKETS,
-  INITIAL_MAWBS, 
-  INITIAL_MANIFESTS, 
-  INITIAL_EAWB_MESSAGES, 
-  INITIAL_CASS_INVOICES,
   IATA_AIRLINES,
   IATA_AIRPORTS,
-  INITIAL_PARTNERS,
   ISSUING_AGENT_PROFILE,
-  DEFAULT_USERS
 } from '@/lib/iata-data';
 
 interface InvoiceConfiguration {
@@ -110,6 +101,8 @@ const isStoredCassInvoice = (value: unknown): value is CassInvoice => {
     (invoice.cassReconciliationStatus === 'RECONCILED' || invoice.cassReconciliationStatus === 'PENDING_MATCH' || invoice.cassReconciliationStatus === 'DISCREPANCY') &&
     (invoice.paymentStatus === 'PAID' || invoice.paymentStatus === 'UNPAID' || invoice.paymentStatus === 'PARTIAL');
 };
+
+const DEMO_USER_IDS = new Set(['usr-admin', 'usr-1', 'usr-2', 'usr-3']);
 
 const loadInvoiceConfiguration = (): InvoiceConfiguration => {
   const defaults: InvoiceConfiguration = { billingTrigger: 'ISSUED', gstRate: 18, sacCode: '996531' };
@@ -140,7 +133,7 @@ export default function HomePage() {
   // Authentication & Session State
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [isAuthChecked, setIsAuthChecked] = useState(false);
-  const [users, setUsers] = useState<UserAccount[]>(DEFAULT_USERS);
+  const [users, setUsers] = useState<UserAccount[]>([]);
 
   // Navigation & Role
   const [activePage, setActivePage] = useState<NavPage>('dashboard');
@@ -149,23 +142,23 @@ export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Primary IATA Domain State
-  const [stock, setStock] = useState<AwbStockItem[]>(INITIAL_AWB_STOCK);
-  const [dockets, setDockets] = useState<DocketItem[]>(INITIAL_DOCKETS);
-  const [bookings, setBookings] = useState<BookingItem[]>(INITIAL_BOOKINGS);
-  const [mawbs, setMawbs] = useState<MawbItem[]>(INITIAL_MAWBS);
-  const [manifests, setManifests] = useState<FlightManifestItem[]>(INITIAL_MANIFESTS);
-  const [eawbMessages, setEawbMessages] = useState<EawbMessage[]>(INITIAL_EAWB_MESSAGES);
+  const [stock, setStock] = useState<AwbStockItem[]>([]);
+  const [dockets, setDockets] = useState<DocketItem[]>([]);
+  const [bookings, setBookings] = useState<BookingItem[]>([]);
+  const [mawbs, setMawbs] = useState<MawbItem[]>([]);
+  const [manifests, setManifests] = useState<FlightManifestItem[]>([]);
+  const [eawbMessages, setEawbMessages] = useState<EawbMessage[]>([]);
   const [invoices, setInvoices] = useState<CassInvoice[]>(() => {
-    if (typeof window === 'undefined') return INITIAL_CASS_INVOICES;
+    if (typeof window === 'undefined') return [];
     try {
       const savedInvoices = window.localStorage.getItem('iata_billing_invoices');
-      if (!savedInvoices) return INITIAL_CASS_INVOICES;
+      if (!savedInvoices) return [];
       const parsed: unknown = JSON.parse(savedInvoices);
       if (!Array.isArray(parsed) || !parsed.every(isStoredCassInvoice)) throw new Error('Stored invoice data is invalid.');
-      return parsed;
+      return parsed.filter((invoice) => invoice.id !== 'inv-881' && invoice.id !== 'inv-882');
     } catch (error) {
       console.error('Invoice restore error', error);
-      return INITIAL_CASS_INVOICES;
+      return [];
     }
   });
   const [invoiceConfiguration, setInvoiceConfiguration] = useState<InvoiceConfiguration>(loadInvoiceConfiguration);
@@ -175,7 +168,7 @@ export default function HomePage() {
   // Master Data State
   const [airlines, setAirlines] = useState<Airline[]>(IATA_AIRLINES);
   const [airports, setAirports] = useState<Airport[]>(IATA_AIRPORTS);
-  const [partners, setPartners] = useState<ShipperConsignee[]>(INITIAL_PARTNERS);
+  const [partners, setPartners] = useState<ShipperConsignee[]>([]);
   const [agentProfile, setAgentProfile] = useState<IssuingAgentProfile>(ISSUING_AGENT_PROFILE);
 
   // Toast / System Notification
@@ -206,26 +199,33 @@ export default function HomePage() {
   useEffect(() => {
     const timer = setTimeout(() => {
       try {
-        const storedUser = localStorage.getItem('iata_auth_user');
-        if (storedUser) {
-          const parsed: UserAccount = JSON.parse(storedUser);
-          const isAdmin = parsed.username?.toLowerCase() === 'admin' || parsed.role?.toLowerCase() === 'admin';
-          if (isAdmin) {
-            parsed.role = 'admin';
-            parsed.permissions = ALL_TAB_IDS;
-          }
-          setCurrentUser(parsed);
-        }
         const storedUsers = localStorage.getItem('iata_users');
         if (storedUsers) {
           const parsedUsers: UserAccount[] = JSON.parse(storedUsers);
-          const sanitized = parsedUsers.map((u) => {
+          const sanitized = parsedUsers.filter((user) => !DEMO_USER_IDS.has(user.id)).map((u) => {
             if (u.username?.toLowerCase() === 'admin' || u.role?.toLowerCase() === 'admin') {
               return { ...u, role: 'admin' as UserRole, permissions: ALL_TAB_IDS, isActive: true };
             }
             return u;
           });
           setUsers(sanitized);
+          if (sanitized.length !== parsedUsers.length) {
+            localStorage.setItem('iata_users', JSON.stringify(sanitized));
+          }
+        }
+        const storedUser = localStorage.getItem('iata_auth_user');
+        if (storedUser) {
+          const parsed: UserAccount = JSON.parse(storedUser);
+          if (DEMO_USER_IDS.has(parsed.id)) {
+            localStorage.removeItem('iata_auth_user');
+          } else {
+            const isAdmin = parsed.username?.toLowerCase() === 'admin' || parsed.role?.toLowerCase() === 'admin';
+            if (isAdmin) {
+              parsed.role = 'admin';
+              parsed.permissions = ALL_TAB_IDS;
+            }
+            setCurrentUser(parsed);
+          }
         }
       } catch (err) {
         console.error('Session restore error', err);
@@ -364,9 +364,8 @@ export default function HomePage() {
   };
 
   const handleResetUserPermissions = (userId: string) => {
-    const defaultUser = DEFAULT_USERS.find((u) => u.id === userId);
-    if (!defaultUser) return;
-    handleUpdateUserPermissions(userId, defaultUser.permissions);
+    if (!users.some((user) => user.id === userId)) return;
+    handleUpdateUserPermissions(userId, ['dashboard']);
   };
 
   const handleSimulateUser = (simulatedUser: UserAccount) => {
@@ -477,7 +476,7 @@ export default function HomePage() {
       totalCharges: docket.subtotal,
       natureOfGoods: docket.natureOfGoods,
       handlingCode: docket.handlingCode,
-      flightNumber: 'AI-121',
+      flightNumber: '',
       flightDate: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
       hawbs: [],
       status: 'ISSUED',
@@ -494,7 +493,7 @@ export default function HomePage() {
     const newBooking: BookingItem = {
       ...bookingData,
       id: `bkg-${Date.now()}`,
-      bookingRef: `BKG-2026-${Math.floor(1000 + Math.random() * 9000)}`,
+      bookingRef: `BKG-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`,
       createdAt: new Date().toISOString(),
       status: 'PENDING_AWB',
     };
@@ -538,9 +537,9 @@ export default function HomePage() {
       serialNumber: availableItem.airlineNumber,
       bookingId: booking.id,
       shipperName: booking.shipperName,
-      shipperAddress: `${booking.origin} Air Cargo SEZ`,
+      shipperAddress: '',
       consigneeName: booking.consigneeName,
-      consigneeAddress: `${booking.destination} Free Trade Zone Terminal`,
+      consigneeAddress: '',
       issuingAgentName: agentProfile.name,
       issuingAgentIataCode: agentProfile.iataNumericCode,
       origin: booking.origin,
@@ -556,8 +555,8 @@ export default function HomePage() {
       totalCharges,
       natureOfGoods: booking.natureOfGoods,
       handlingCode: booking.handlingCode,
-      flightNumber: 'AI-121',
-      flightDate: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
+      flightNumber: '',
+      flightDate: '',
       hawbs: [],
       status: 'ISSUED',
       issuedAt: new Date().toISOString().split('T')[0],
@@ -659,7 +658,7 @@ export default function HomePage() {
 
     const rawImp = `FWB/16
 ${mawb.mawbNumber.replace('-', '')}${mawb.origin}${mawb.destination}/T${mawb.pieces}K${mawb.grossWeightKg}
-FLT/${mawb.flightNumber || 'AI121'}/${mawb.flightDate || '30OCT'}
+FLT/${mawb.flightNumber}/${mawb.flightDate}
 RTD/1/P${mawb.pieces}/K${mawb.grossWeightKg}/CQ/W${mawb.chargeableWeightKg}/R${mawb.ratePerKg}/T${mawb.freightAmount}
 /NG/${mawb.natureOfGoods.toUpperCase().slice(0, 30)}
 SHP
@@ -676,7 +675,7 @@ SPH/${mawb.handlingCode}`;
       id: `msg-${Date.now()}`,
       messageType: 'FWB',
       awbNumber: mawb.mawbNumber,
-      airline: mawb.airlinePrefix === '098' ? 'Air India' : mawb.airlinePrefix === '176' ? 'Emirates' : 'Lufthansa',
+      airline: airlines.find((airline) => airline.prefix === mawb.airlinePrefix)?.name ?? '',
       flightNumber: mawb.flightNumber,
       direction: 'OUTBOUND',
       status: 'ACKNOWLEDGED',
@@ -714,7 +713,7 @@ ${hawbLines}`;
       id: `msg-${Date.now()}`,
       messageType: 'FHL',
       awbNumber: mawb.mawbNumber,
-      airline: mawb.airlinePrefix === '098' ? 'Air India' : 'Emirates SkyCargo',
+      airline: airlines.find((airline) => airline.prefix === mawb.airlinePrefix)?.name ?? '',
       flightNumber: mawb.flightNumber,
       direction: 'OUTBOUND',
       status: 'ACKNOWLEDGED',
@@ -1095,7 +1094,7 @@ ${hawbLines}`;
     );
   }
 
-  // If user is not authenticated, render Login Page (admin / admin)
+  // If user is not authenticated, render the login page.
   if (!currentUser) {
     return <LoginView users={users} onLogin={handleLogin} />;
   }
