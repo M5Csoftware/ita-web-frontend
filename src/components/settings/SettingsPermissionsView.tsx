@@ -1,46 +1,40 @@
 'use client';
 
 import React, { useState } from 'react';
-import { 
-  ShieldCheck, 
-  Users, 
-  Plus, 
-  CheckCircle2, 
-  XCircle, 
-  RotateCcw, 
-  LayoutDashboard, 
-  ReceiptText, 
-  Layers, 
-  Boxes, 
-  FileSpreadsheet, 
-  PlaneTakeoff, 
-  Send, 
-  Receipt, 
-  Building2, 
-  Settings, 
-  Trash2, 
-  Lock, 
+import {
+  ShieldCheck,
+  Users,
+  Plus,
+  CheckCircle2,
+  XCircle,
+  RotateCcw,
+  LayoutDashboard,
+  ReceiptText,
+  Layers,
+  Boxes,
+  FileSpreadsheet,
+  PlaneTakeoff,
+  Send,
+  Receipt,
+  Building2,
+  Settings,
+  Trash2,
+  Lock,
   Sparkles,
   Info,
   Shield,
-  KeyRound
+  KeyRound,
 } from 'lucide-react';
-import { 
-  UserAccount, 
-  NavPageId, 
+import {
+  UserAccount,
+  NavPageId,
   ALL_TAB_IDS,
-  getUserEffectiveTabs
+  getUserEffectiveTabs,
 } from '@/types/iata';
+import { useUsers } from '@/hooks/useUsers';
 
 interface SettingsPermissionsViewProps {
   currentUser: UserAccount;
-  users: UserAccount[];
-  onUpdateUserPermissions: (userId: string, newPermissions: NavPageId[]) => void;
-  onUpdateUserRole: (userId: string, newRole: 'admin' | 'user') => void;
-  onAddUser: (user: UserAccount) => void;
-  onToggleUserStatus: (userId: string) => void;
-  onDeleteUser: (userId: string) => void;
-  onResetUserPermissions: (userId: string) => void;
   onSimulateUser?: (user: UserAccount) => void;
 }
 
@@ -60,15 +54,16 @@ export const ALL_SIDEBAR_TABS: { id: NavPageId; label: string; icon: React.Eleme
 
 export const SettingsPermissionsView: React.FC<SettingsPermissionsViewProps> = ({
   currentUser,
-  users,
-  onUpdateUserPermissions,
-  onUpdateUserRole,
-  onAddUser,
-  onToggleUserStatus,
-  onDeleteUser,
-  onResetUserPermissions,
   onSimulateUser,
 }) => {
+  const {
+    users, loading, error,
+    updatePermissions, updateRole, deleteUser, createUser,
+  } = useUsers();
+
+  // ★ MASTER ADMIN = the literal 'admin' account
+  const isMasterAdmin = currentUser.username.toLowerCase() === 'admin';
+
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [searchFilter, setSearchFilter] = useState('');
   const [feedbackNotice, setFeedbackNotice] = useState<string | null>(null);
@@ -91,39 +86,72 @@ export const SettingsPermissionsView: React.FC<SettingsPermissionsViewProps> = (
     setTimeout(() => setFeedbackNotice(null), 3500);
   };
 
-  // Toggle single tab permission for an individual user
-  const handleToggleTab = (targetUser: UserAccount, tabId: NavPageId) => {
+  // ---- Guarded handlers ----
+
+  const handleToggleTab = async (targetUser: UserAccount, tabId: NavPageId) => {
+    if (!isMasterAdmin) return;
     if (targetUser.role === 'admin' || targetUser.username.toLowerCase() === 'admin') {
       triggerNotice('Admins strictly have full access to all modules and cannot be modified.');
       return;
     }
-
     const currentTabs = targetUser.permissions || [];
     const updatedTabs = currentTabs.includes(tabId)
       ? currentTabs.filter((id) => id !== tabId)
       : [...currentTabs, tabId];
 
-    onUpdateUserPermissions(targetUser.id, updatedTabs);
-    triggerNotice(`Updated ${targetUser.username}&apos;s access for ${ALL_SIDEBAR_TABS.find(t => t.id === tabId)?.label}`);
+    try {
+      await updatePermissions(targetUser.id, updatedTabs);
+      triggerNotice(`Updated ${targetUser.username}'s access for ${ALL_SIDEBAR_TABS.find(t => t.id === tabId)?.label}`);
+    } catch (e: any) {
+      triggerNotice(e.message ?? 'Failed to update permissions');
+    }
   };
 
-  // Allow all tabs for a specific user
-  const handleAllowAllForUser = (targetUser: UserAccount) => {
+  const handleAllowAllForUser = async (targetUser: UserAccount) => {
+    if (!isMasterAdmin) return;
     if (targetUser.role === 'admin' || targetUser.username.toLowerCase() === 'admin') return;
-    onUpdateUserPermissions(targetUser.id, ALL_TAB_IDS);
-    triggerNotice(`Enabled all ${ALL_SIDEBAR_TABS.length} sidebar modules for ${targetUser.username}`);
+    try {
+      await updatePermissions(targetUser.id, ALL_TAB_IDS);
+      triggerNotice(`Enabled all ${ALL_SIDEBAR_TABS.length} sidebar modules for ${targetUser.username}`);
+    } catch (e: any) {
+      triggerNotice(e.message ?? 'Failed to enable all');
+    }
   };
 
-  // Clear all tabs for a specific user
-  const handleClearAllForUser = (targetUser: UserAccount) => {
+  const handleClearAllForUser = async (targetUser: UserAccount) => {
+    if (!isMasterAdmin) return;
     if (targetUser.role === 'admin' || targetUser.username.toLowerCase() === 'admin') return;
-    onUpdateUserPermissions(targetUser.id, []);
-    triggerNotice(`Revoked all modules for ${targetUser.username}`);
+    try {
+      await updatePermissions(targetUser.id, []);
+      triggerNotice(`Revoked all modules for ${targetUser.username}`);
+    } catch (e: any) {
+      triggerNotice(e.message ?? 'Failed to revoke');
+    }
   };
 
-  // Submit new user
-  const handleCreateUserSubmit = (e: React.FormEvent) => {
+  const handleRoleChange = async (targetUser: UserAccount, newRole: 'admin' | 'user') => {
+    if (!isMasterAdmin) return;
+    try {
+      await updateRole(targetUser.id, newRole);
+      triggerNotice(`Changed ${targetUser.username}'s role to "${newRole}".`);
+    } catch (e: any) {
+      triggerNotice(e.message ?? 'Failed to change role');
+    }
+  };
+
+  const handleDeleteUser = async (targetUser: UserAccount) => {
+    if (!isMasterAdmin) return;
+    try {
+      await deleteUser(targetUser.id);
+      triggerNotice(`User ${targetUser.username} removed.`);
+    } catch (e: any) {
+      triggerNotice(e.message ?? 'Failed to delete user');
+    }
+  };
+
+  const handleCreateUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isMasterAdmin) return;
     if (!newUsername.trim() || !newFullName.trim() || !newPassword.trim()) return;
 
     if (users.some((u) => u.username.toLowerCase() === newUsername.trim().toLowerCase())) {
@@ -131,33 +159,50 @@ export const SettingsPermissionsView: React.FC<SettingsPermissionsViewProps> = (
       return;
     }
 
-    const createdUser: UserAccount = {
-      id: `usr-${Date.now()}`,
-      username: newUsername.trim().toLowerCase(),
-      password: newPassword,
-      fullName: newFullName.trim(),
-      role: newUserRole,
-      email: newUserEmail.trim() || `${newUsername.trim()}@iata-cargo.org`,
-      stationCode: newUserStation.trim() || 'DEL Hub',
-      isActive: true,
-      permissions: newUserRole === 'admin' ? ALL_TAB_IDS : newUserSelectedTabs,
-    };
+    try {
+      await createUser({
+        username: newUsername.trim().toLowerCase(),
+        password: newPassword,
+        fullName: newFullName.trim(),
+        role: newUserRole,
+        email: newUserEmail.trim() || `${newUsername.trim()}@iata-cargo.org`,
+        stationCode: newUserStation.trim() || 'DEL Hub',
+        permissions: newUserRole === 'admin' ? ALL_TAB_IDS : newUserSelectedTabs,
+      });
 
-    onAddUser(createdUser);
-    setShowAddUserModal(false);
-    setNewUsername('');
-    setNewPassword('');
-    setNewFullName('');
-    setNewUserEmail('');
-    setNewUserSelectedTabs(['dashboard', 'docket', 'bookings']);
-    triggerNotice(`User ${createdUser.fullName} (${createdUser.username}) created with role "${createdUser.role}"!`);
+      setShowAddUserModal(false);
+      setNewUsername('');
+      setNewPassword('');
+      setNewFullName('');
+      setNewUserEmail('');
+      setNewUserSelectedTabs(['dashboard', 'docket', 'bookings']);
+      triggerNotice(`User ${newFullName} (${newUsername}) created with role "${newUserRole}"!`);
+    } catch (e: any) {
+      triggerNotice(e.message ?? 'Failed to create user');
+    }
   };
 
-  const filteredUsers = users.filter((u) => 
+  const filteredUsers = users.filter((u) =>
     u.username.toLowerCase().includes(searchFilter.toLowerCase()) ||
     u.fullName.toLowerCase().includes(searchFilter.toLowerCase()) ||
     u.stationCode.toLowerCase().includes(searchFilter.toLowerCase())
   );
+
+  // ---- Loading / error states ----
+  if (loading) {
+    return (
+      <div className="w-full p-12 text-center text-slate-500 animate-pulse font-sans">
+        Loading users from server…
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="w-full p-6 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-sm font-sans">
+        <strong>Could not load users:</strong> {error}
+      </div>
+    );
+  }
 
   return (
     <div className="w-full space-y-8 animate-in fade-in duration-300">
@@ -173,17 +218,21 @@ export const SettingsPermissionsView: React.FC<SettingsPermissionsViewProps> = (
             </span>
           </div>
           <p className="text-sm sm:text-base text-slate-500 mt-1 font-sans">
-            Every user login has its own independent tab permissions. Admins have strict full access; users have selective access configured below.
+            {isMasterAdmin
+              ? 'Every user login has its own independent tab permissions. Admins have strict full access; users have selective access configured below.'
+              : 'Read-only view. Only the master admin (@admin) can edit user permissions, roles, or add/delete accounts.'}
           </p>
         </div>
 
-        <button
-          onClick={() => setShowAddUserModal(true)}
-          className="px-5 py-2.5 bg-[#2C5EAD] hover:bg-[#204580] text-white rounded-xl text-sm font-bold font-heading flex items-center gap-2 transition-all shadow-md shadow-[#2C5EAD]/20 self-start md:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add New User</span>
-        </button>
+        {isMasterAdmin && (
+          <button
+            onClick={() => setShowAddUserModal(true)}
+            className="px-5 py-2.5 bg-[#2C5EAD] hover:bg-[#204580] text-white rounded-xl text-sm font-bold font-heading flex items-center gap-2 transition-all shadow-md shadow-[#2C5EAD]/20 self-start md:self-auto"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add New User</span>
+          </button>
+        )}
       </div>
 
       {/* Role Explainer Cards */}
@@ -239,7 +288,9 @@ export const SettingsPermissionsView: React.FC<SettingsPermissionsViewProps> = (
               <span>User-Level Tab Permissions Matrix</span>
             </h2>
             <p className="text-xs sm:text-sm text-slate-500 font-sans mt-0.5">
-              Click checkboxes in each user&apos;s row to customize which sidebar tabs they can view and access.
+              {isMasterAdmin
+                ? "Click checkboxes in each user's row to customize which sidebar tabs they can view and access."
+                : 'Only the master admin (@admin) can edit these permissions.'}
             </p>
           </div>
 
@@ -282,7 +333,7 @@ export const SettingsPermissionsView: React.FC<SettingsPermissionsViewProps> = (
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredUsers.map((userItem) => {
-                const isAdmin = userItem.role === 'admin' || userItem.username.toLowerCase() === 'admin';
+                const isAdminUser = userItem.role === 'admin' || userItem.username.toLowerCase() === 'admin';
                 const effectiveTabs = getUserEffectiveTabs(userItem);
                 const count = effectiveTabs.length;
                 const total = ALL_SIDEBAR_TABS.length;
@@ -293,7 +344,7 @@ export const SettingsPermissionsView: React.FC<SettingsPermissionsViewProps> = (
                     <td className="py-4 px-5">
                       <div className="flex items-center gap-3">
                         <div className={`w-9 h-9 rounded-xl text-white flex items-center justify-center font-bold text-xs uppercase shadow-xs ${
-                          isAdmin 
+                          isAdminUser
                             ? 'bg-gradient-to-tr from-purple-600 to-indigo-600'
                             : 'bg-gradient-to-tr from-[#2C5EAD] to-[#1591DC]'
                         }`}>
@@ -315,22 +366,18 @@ export const SettingsPermissionsView: React.FC<SettingsPermissionsViewProps> = (
                       </div>
                     </td>
 
-                    {/* Role Dropdown */}
+                    {/* Role dropdown — editable only for master admin */}
                     <td className="py-4 px-4">
                       {userItem.username === 'admin' ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold font-mono bg-purple-50 text-purple-700 border border-purple-200">
                           👑 Admin
                         </span>
-                      ) : (
+                      ) : isMasterAdmin ? (
                         <select
                           value={userItem.role}
-                          onChange={(e) => {
-                            const newRole = e.target.value as 'admin' | 'user';
-                            onUpdateUserRole(userItem.id, newRole);
-                            triggerNotice(`Changed ${userItem.username}&apos;s role to "${newRole}".`);
-                          }}
+                          onChange={(e) => handleRoleChange(userItem, e.target.value as 'admin' | 'user')}
                           className={`px-2 py-1 rounded-lg border text-xs font-bold font-mono focus:outline-none ${
-                            isAdmin 
+                            isAdminUser
                               ? 'bg-purple-50 border-purple-200 text-purple-700'
                               : 'bg-blue-50 border-blue-200 text-[#2C5EAD]'
                           }`}
@@ -338,20 +385,28 @@ export const SettingsPermissionsView: React.FC<SettingsPermissionsViewProps> = (
                           <option value="user">👤 User</option>
                           <option value="admin">👑 Admin</option>
                         </select>
+                      ) : (
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold font-mono border ${
+                          isAdminUser
+                            ? 'bg-purple-50 text-purple-700 border-purple-200'
+                            : 'bg-blue-50 text-[#2C5EAD] border-blue-200'
+                        }`}>
+                          {isAdminUser ? '👑 Admin' : '👤 User'}
+                        </span>
                       )}
                     </td>
 
-                    {/* Interactive Tab Checkboxes for each sidebar module */}
+                    {/* Tab checkboxes — interactive only for master admin */}
                     {ALL_SIDEBAR_TABS.map((tab) => {
                       const isAllowed = effectiveTabs.includes(tab.id);
 
                       return (
                         <td key={tab.id} className="py-3 px-2 text-center">
-                          {isAdmin ? (
+                          {isAdminUser ? (
                             <div className="inline-flex items-center justify-center p-1.5 text-purple-500" title="Admin strictly has access to all modules">
                               <Lock className="w-3.5 h-3.5" />
                             </div>
-                          ) : (
+                          ) : isMasterAdmin ? (
                             <label className="inline-flex items-center justify-center cursor-pointer p-1.5 rounded-lg hover:bg-slate-100 transition-colors">
                               <input
                                 type="checkbox"
@@ -360,6 +415,10 @@ export const SettingsPermissionsView: React.FC<SettingsPermissionsViewProps> = (
                                 className="w-4 h-4 rounded text-[#2C5EAD] focus:ring-[#2C5EAD] border-slate-300 cursor-pointer"
                               />
                             </label>
+                          ) : (
+                            <div className={`inline-flex items-center justify-center p-1.5 ${isAllowed ? 'text-emerald-600' : 'text-slate-300'}`}>
+                              {isAllowed ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                            </div>
                           )}
                         </td>
                       );
@@ -368,7 +427,7 @@ export const SettingsPermissionsView: React.FC<SettingsPermissionsViewProps> = (
                     {/* Access Count Badge */}
                     <td className="py-4 px-4 text-center">
                       <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold font-mono ${
-                        isAdmin
+                        isAdminUser
                           ? 'bg-purple-50 text-purple-700 border border-purple-200'
                           : count === total
                           ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
@@ -383,7 +442,7 @@ export const SettingsPermissionsView: React.FC<SettingsPermissionsViewProps> = (
                     {/* Actions per user */}
                     <td className="py-4 px-5 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        {!isAdmin && (
+                        {isMasterAdmin && !isAdminUser && (
                           <>
                             <button
                               type="button"
@@ -419,13 +478,10 @@ export const SettingsPermissionsView: React.FC<SettingsPermissionsViewProps> = (
                           </button>
                         )}
 
-                        {userItem.username !== 'admin' && userItem.id !== currentUser.id && (
+                        {isMasterAdmin && userItem.username !== 'admin' && userItem.id !== currentUser.id && (
                           <button
                             type="button"
-                            onClick={() => {
-                              onDeleteUser(userItem.id);
-                              triggerNotice(`User ${userItem.username} removed.`);
-                            }}
+                            onClick={() => handleDeleteUser(userItem)}
                             className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 transition-colors"
                             title="Delete user account"
                           >
@@ -445,13 +501,13 @@ export const SettingsPermissionsView: React.FC<SettingsPermissionsViewProps> = (
         <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-start gap-3">
           <Info className="w-4 h-4 text-[#2C5EAD] shrink-0 mt-0.5" />
           <p className="leading-relaxed">
-            <strong>Individual Access Rule:</strong> When an individual user logs in, the platform checks their specific <code className="bg-white px-1.5 py-0.5 rounded font-mono font-bold text-[#2C5EAD]">permissions</code> array. If role is <span className="font-bold text-purple-700">admin</span>, all modules are automatically unlocked. If role is <span className="font-bold text-[#2C5EAD]">user</span>, only the checked modules appear in their sidebar navigation.
+            <strong>Master Admin Rule:</strong> Only the master admin (<code className="bg-white px-1.5 py-0.5 rounded font-mono font-bold text-[#2C5EAD]">@admin</code>) can edit user permissions, change roles, or add/delete accounts. When any user logs in, the platform checks their specific <code className="bg-white px-1.5 py-0.5 rounded font-mono font-bold text-[#2C5EAD]">permissions</code> array. If role is <span className="font-bold text-purple-700">admin</span>, all modules are automatically unlocked. If role is <span className="font-bold text-[#2C5EAD]">user</span>, only the checked modules appear in their sidebar navigation.
           </p>
         </div>
       </div>
 
-      {/* MODAL: ADD USER */}
-      {showAddUserModal && (
+      {/* MODAL: ADD USER — only render for master admin */}
+      {isMasterAdmin && showAddUserModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in overflow-y-auto">
           <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-lg w-full p-7 space-y-6 my-8">
             <div className="border-b border-slate-100 pb-4">
@@ -519,15 +575,15 @@ export const SettingsPermissionsView: React.FC<SettingsPermissionsViewProps> = (
                 </div>
               </div>
 
-              {/* Role Selection (admin vs user) */}
+              {/* Role Selection */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-2 uppercase tracking-wider">
                   Role Assignment *
                 </label>
                 <div className="grid grid-cols-2 gap-3">
                   <label className={`p-3 rounded-xl border cursor-pointer transition-all flex items-center gap-3 ${
-                    newUserRole === 'user' 
-                      ? 'border-[#2C5EAD] bg-blue-50/50 shadow-xs' 
+                    newUserRole === 'user'
+                      ? 'border-[#2C5EAD] bg-blue-50/50 shadow-xs'
                       : 'border-slate-200 hover:bg-slate-50'
                   }`}>
                     <input
@@ -545,8 +601,8 @@ export const SettingsPermissionsView: React.FC<SettingsPermissionsViewProps> = (
                   </label>
 
                   <label className={`p-3 rounded-xl border cursor-pointer transition-all flex items-center gap-3 ${
-                    newUserRole === 'admin' 
-                      ? 'border-purple-600 bg-purple-50/50 shadow-xs' 
+                    newUserRole === 'admin'
+                      ? 'border-purple-600 bg-purple-50/50 shadow-xs'
                       : 'border-slate-200 hover:bg-slate-50'
                   }`}>
                     <input
