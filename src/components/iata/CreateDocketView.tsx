@@ -1,36 +1,49 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
-import { 
-  DocketItem, 
-  DocketServiceMode, 
-  DocketPaymentMode, 
-  SpecialHandlingCode, 
-  DimensionEntry, 
-  Airport, 
-  ShipperConsignee, 
-  calculateVolumetricWeight 
-} from '@/types/iata';
-import { 
-  FileText, 
-  Plus, 
-  Printer, 
-  Trash2, 
-  Search, 
-  CheckCircle2, 
-  Layers, 
-  Plane, 
-  Building2, 
-  Clock, 
-  X
-} from 'lucide-react';
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import {
+  DocketItem,
+  DocketServiceMode,
+  DocketPaymentMode,
+  SpecialHandlingCode,
+  DimensionEntry,
+  Airport,
+  ShipperConsignee,
+  AwbStockItem,
+  calculateVolumetricWeight,
+} from "@/types/iata";
+import {
+  FileText,
+  Plus,
+  Printer,
+  Trash2,
+  Search,
+  CheckCircle2,
+  Layers,
+  Plane,
+  Building2,
+  Clock,
+  X,
+  AlertCircle,
+  Loader2,
+  RefreshCw,
+  Ticket,
+} from "lucide-react";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
 interface CreateDocketViewProps {
   dockets: DocketItem[];
   airports: Airport[];
   partners: ShipperConsignee[];
-  availableAwbCount: number;
-  onCreateDocket: (docket: Omit<DocketItem, 'id' | 'createdAt' | 'status'>) => void;
+  /** Optional: if the parent already holds the stock list, pass it here and the
+   *  component will not call the backend itself. */
+  awbStock?: AwbStockItem[];
+  /** Kept optional for backward compatibility – count is now derived from stock. */
+  availableAwbCount?: number;
+  onCreateDocket: (
+    docket: Omit<DocketItem, "id" | "createdAt" | "status">,
+  ) => void | Promise<void>;
   onAssignAwbToDocket: (docket: DocketItem) => void;
 }
 
@@ -38,37 +51,48 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
   dockets,
   airports,
   partners,
-  availableAwbCount,
+  awbStock: externalStock,
   onCreateDocket,
   onAssignAwbToDocket,
 }) => {
-  const [activeTab, setActiveTab] = useState<'create' | 'registry'>('create');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [activeTab, setActiveTab] = useState<"create" | "registry">("create");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+
+  // ---------- AWB stock (from backend) ----------
+  const [localStock, setLocalStock] = useState<AwbStockItem[]>([]);
+  const [isStockLoading, setIsStockLoading] = useState(false);
+  const [stockError, setStockError] = useState("");
+  const [selectedAwb, setSelectedAwb] = useState<string>(""); // '' = auto (next in stock)
+  const [awbSearch, setAwbSearch] = useState("");
+
+  const stock = externalStock ?? localStock;
 
   // Form State
-  const [origin, setOrigin] = useState('');
-  const [destination, setDestination] = useState('');
-  const [serviceMode, setServiceMode] = useState<DocketServiceMode>('EXPRESS_AIR');
-  const [paymentMode, setPaymentMode] = useState<DocketPaymentMode>('ON_ACCOUNT');
-  
-  // Consignor & Consignee
-  const [consignorName, setConsignorName] = useState('');
-  const [consignorAddress, setConsignorAddress] = useState('');
-  const [consignorPhone, setConsignorPhone] = useState('');
-  const [consignorGst, setConsignorGst] = useState('');
+  const [origin, setOrigin] = useState("");
+  const [destination, setDestination] = useState("");
+  const [serviceMode, setServiceMode] =
+    useState<DocketServiceMode>("EXPRESS_AIR");
+  const [paymentMode, setPaymentMode] =
+    useState<DocketPaymentMode>("ON_ACCOUNT");
 
-  const [consigneeName, setConsigneeName] = useState('');
-  const [consigneeAddress, setConsigneeAddress] = useState('');
-  const [consigneePhone, setConsigneePhone] = useState('');
-  const [consigneeGst, setConsigneeGst] = useState('');
+  // Consignor & Consignee
+  const [consignorName, setConsignorName] = useState("");
+  const [consignorAddress, setConsignorAddress] = useState("");
+  const [consignorPhone, setConsignorPhone] = useState("");
+  const [consignorGst, setConsignorGst] = useState("");
+
+  const [consigneeName, setConsigneeName] = useState("");
+  const [consigneeAddress, setConsigneeAddress] = useState("");
+  const [consigneePhone, setConsigneePhone] = useState("");
+  const [consigneeGst, setConsigneeGst] = useState("");
 
   // Package & Commodities
-  const [packageType, setPackageType] = useState('');
-  const [natureOfGoods, setNatureOfGoods] = useState('');
-  const [handlingCode, setHandlingCode] = useState<SpecialHandlingCode>('GEN');
+  const [packageType, setPackageType] = useState("Carton / Box");
+  const [natureOfGoods, setNatureOfGoods] = useState("");
+  const [handlingCode, setHandlingCode] = useState<SpecialHandlingCode>("GEN");
   const [declaredValue, setDeclaredValue] = useState(0);
-  const [ewayBillNumber, setEwayBillNumber] = useState('');
+  const [ewayBillNumber, setEwayBillNumber] = useState("");
   const [ratePerKg, setRatePerKg] = useState(0);
   const [docketFee, setDocketFee] = useState(0);
 
@@ -78,25 +102,120 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
     { lengthCm: 0, widthCm: 0, heightCm: 0, pieces: 0 },
   ]);
 
+  // Submit state
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+
   // Modals
-  const [selectedDocketForPrint, setSelectedDocketForPrint] = useState<DocketItem | null>(null);
-  const [printCopyType, setPrintCopyType] = useState<'CONSIGNOR' | 'CONSIGNEE' | 'OFFICE'>('CONSIGNOR');
+  const [selectedDocketForPrint, setSelectedDocketForPrint] =
+    useState<DocketItem | null>(null);
+  const [printCopyType, setPrintCopyType] = useState<
+    "CONSIGNOR" | "CONSIGNEE" | "OFFICE"
+  >("CONSIGNOR");
+
+  /* ---------- Inline fetch helper ---------- */
+  const apiFetch = async <T,>(
+    path: string,
+    options: RequestInit = {},
+  ): Promise<T> => {
+    const res = await fetch(`${API_BASE}${path}`, {
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
+      ...options,
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      const message =
+        (data && (data.message || data.error)) ||
+        `Request failed with status ${res.status}`;
+      throw new Error(message);
+    }
+
+    return data as T;
+  };
+
+  /* ---------- Load AWB stock from API ---------- */
+  const loadStock = useCallback(async () => {
+    if (externalStock) return;
+    setIsStockLoading(true);
+    setStockError("");
+    try {
+      const data = await apiFetch<{
+        success: boolean;
+        count: number;
+        stock: AwbStockItem[];
+      }>("/api/stock");
+      setLocalStock(data.stock || []);
+    } catch (err: any) {
+      setStockError(err.message || "Failed to load AWB stock.");
+    } finally {
+      setIsStockLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalStock]);
+
+  useEffect(() => {
+    loadStock();
+  }, [loadStock]);
+
+  // Default origin / destination once airports are available
+  useEffect(() => {
+    if (airports.length === 0) return;
+    setOrigin((prev) => prev || airports[0].iataCode);
+    setDestination((prev) => prev || (airports[1] ?? airports[0]).iataCode);
+  }, [airports]);
+
+  /* ---------- Available AWBs ---------- */
+  const availableAwbs = useMemo(
+    () =>
+      stock
+        .filter((s) => s.status === "AVAILABLE")
+        .sort((a, b) => a.fullAwbNumber.localeCompare(b.fullAwbNumber)),
+    [stock],
+  );
+
+  const availableAwbCount = availableAwbs.length;
+
+  // If the chosen AWB is no longer available (e.g. just used), fall back to auto
+  const awbToAssign = useMemo(() => {
+    const chosen = availableAwbs.find((a) => a.fullAwbNumber === selectedAwb);
+    if (chosen) return chosen.fullAwbNumber;
+    return availableAwbs[0]?.fullAwbNumber || "";
+  }, [availableAwbs, selectedAwb]);
+
+  const isAutoAwb = !selectedAwb || selectedAwb !== awbToAssign;
+
+  const visibleAwbChips = useMemo(
+    () =>
+      availableAwbs
+        .filter((a) => a.fullAwbNumber.includes(awbSearch.trim()))
+        .slice(0, 12),
+    [availableAwbs, awbSearch],
+  );
 
   // Calculations
   const volumetricWeightKg = calculateVolumetricWeight(dimensions);
-  const totalPieces = dimensions.reduce((acc, dim) => acc + (Number(dim.pieces) || 0), 0);
+  const totalPieces = dimensions.reduce(
+    (acc, dim) => acc + (Number(dim.pieces) || 0),
+    0,
+  );
   const chargeableWeightKg = Math.max(actualWeightKg, volumetricWeightKg);
-  
+
   const freightAmount = Math.round(chargeableWeightKg * ratePerKg);
   const fuelSurcharge = Math.round(freightAmount * 0.11); // 11% fuel surcharge
   const securitySurcharge = Math.round(freightAmount * 0.04); // 4% security surcharge
-  const subtotal = freightAmount + docketFee + fuelSurcharge + securitySurcharge;
+  const subtotal =
+    freightAmount + docketFee + fuelSurcharge + securitySurcharge;
   const gstAmount = Math.round(subtotal * 0.18); // 18% GST
   const totalAmount = subtotal + gstAmount;
 
   // Handlers for quick auto-fill from trading partners
   const handleSelectConsignor = (partnerId: string) => {
-    const p = partners.find(item => item.id === partnerId);
+    const p = partners.find((item) => item.id === partnerId);
     if (p) {
       setConsignorName(p.name);
       setConsignorAddress(`${p.address}, ${p.city}`);
@@ -106,7 +225,7 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
   };
 
   const handleSelectConsignee = (partnerId: string) => {
-    const p = partners.find(item => item.id === partnerId);
+    const p = partners.find((item) => item.id === partnerId);
     if (p) {
       setConsigneeName(p.name);
       setConsigneeAddress(`${p.address}, ${p.city}`);
@@ -116,7 +235,10 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
   };
 
   const handleAddDimensionRow = () => {
-    setDimensions([...dimensions, { lengthCm: 50, widthCm: 50, heightCm: 50, pieces: 1 }]);
+    setDimensions([
+      ...dimensions,
+      { lengthCm: 50, widthCm: 50, heightCm: 50, pieces: 1 },
+    ]);
   };
 
   const handleRemoveDimensionRow = (index: number) => {
@@ -124,67 +246,106 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
     setDimensions(dimensions.filter((_, i) => i !== index));
   };
 
-  const handleUpdateDimension = (index: number, field: keyof DimensionEntry, value: number) => {
+  const handleUpdateDimension = (
+    index: number,
+    field: keyof DimensionEntry,
+    value: number,
+  ) => {
     const updated = [...dimensions];
     updated[index] = { ...updated[index], [field]: value };
     setDimensions(updated);
   };
 
-  const handleSubmitDocket = (e: React.FormEvent) => {
+  const resetForm = () => {
+    setConsignorName("");
+    setConsignorAddress("");
+    setConsignorPhone("");
+    setConsignorGst("");
+    setConsigneeName("");
+    setConsigneeAddress("");
+    setConsigneePhone("");
+    setConsigneeGst("");
+    setNatureOfGoods("");
+    setDeclaredValue(0);
+    setEwayBillNumber("");
+    setRatePerKg(0);
+    setDocketFee(0);
+    setActualWeightKg(0);
+    setDimensions([{ lengthCm: 0, widthCm: 0, heightCm: 0, pieces: 0 }]);
+    setSelectedAwb("");
+    setAwbSearch("");
+  };
+
+  const handleSubmitDocket = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitError("");
     if (!consignorName || !consigneeName) return;
 
     // Deterministic docket sequence
-    const sequenceNum = (dockets.length + 101).toString().padStart(4, '0');
+    const sequenceNum = (dockets.length + 101).toString().padStart(4, "0");
     const generatedDocketNumber = `DKT-${origin}-${destination}-${sequenceNum}`;
 
-    onCreateDocket({
-      docketNumber: generatedDocketNumber,
-      bookingDate: new Date().toISOString().split('T')[0],
-      serviceMode,
-      paymentMode,
-      origin,
-      destination,
-      consignorName,
-      consignorAddress,
-      consignorPhone,
-      consignorGst,
-      consigneeName,
-      consigneeAddress,
-      consigneePhone,
-      consigneeGst,
-      pieces: totalPieces || 1,
-      packageType,
-      actualWeightKg,
-      dimensions,
-      volumetricWeightKg,
-      chargeableWeightKg,
-      natureOfGoods,
-      handlingCode,
-      declaredValue,
-      ewayBillNumber: ewayBillNumber.trim() || undefined,
-      ratePerKg,
-      freightAmount,
-      docketFee,
-      fuelSurcharge,
-      securitySurcharge,
-      subtotal,
-      gstAmount,
-      totalAmount,
-    });
+    setIsSubmitting(true);
+    try {
+      await Promise.resolve(
+        onCreateDocket({
+          docketNumber: generatedDocketNumber,
+          bookingDate: new Date().toISOString().split("T")[0],
+          serviceMode,
+          paymentMode,
+          origin,
+          destination,
+          consignorName,
+          consignorAddress,
+          consignorPhone,
+          consignorGst,
+          consigneeName,
+          consigneeAddress,
+          consigneePhone,
+          consigneeGst,
+          pieces: totalPieces || 1,
+          packageType,
+          actualWeightKg,
+          dimensions,
+          volumetricWeightKg,
+          chargeableWeightKg,
+          natureOfGoods,
+          handlingCode,
+          declaredValue,
+          ewayBillNumber: ewayBillNumber.trim() || undefined,
+          ratePerKg,
+          freightAmount,
+          docketFee,
+          fuelSurcharge,
+          securitySurcharge,
+          subtotal,
+          gstAmount,
+          totalAmount,
+          // AWB fixed for this docket (undefined if stock is empty)
+          assignedAwb: awbToAssign || undefined,
+        }),
+      );
 
-    // Reset Form or Switch to registry
-    setActiveTab('registry');
+      // Refresh stock so the AWB just used disappears from "available"
+      await loadStock();
+      resetForm();
+      setActiveTab("registry");
+    } catch (err: any) {
+      setSubmitError(err?.message || "Failed to save docket.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const filteredDockets = dockets.filter(docket => {
-    const matchesSearch = 
+  const filteredDockets = dockets.filter((docket) => {
+    const matchesSearch =
       docket.docketNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
       docket.consignorName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       docket.consigneeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (docket.assignedAwb && docket.assignedAwb.includes(searchQuery));
 
-    const matchesStatus = statusFilter === 'ALL' || docket.status === statusFilter;
+    const matchesStatus =
+      statusFilter === "ALL" || docket.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
@@ -197,29 +358,30 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
             Create Cargo Docket & Consignment Note
           </h1>
           <p className="text-sm sm:text-base text-slate-500 mt-1 font-sans">
-            Shipment counter intake, dimensional cubing (L×W×H÷6000), E-Way bill mapping, and AWB link
+            Shipment counter intake, dimensional cubing (L×W×H÷6000), E-Way bill
+            mapping, and AWB link
           </p>
         </div>
 
         {/* View Switcher */}
         <div className="flex bg-slate-100 p-1.5 rounded-xl border border-slate-200 shrink-0">
           <button
-            onClick={() => setActiveTab('create')}
+            onClick={() => setActiveTab("create")}
             className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all flex items-center gap-2 ${
-              activeTab === 'create'
-                ? 'bg-white text-[#2C5EAD] shadow-sm font-bold'
-                : 'text-slate-600 hover:text-slate-900'
+              activeTab === "create"
+                ? "bg-white text-[#2C5EAD] shadow-sm font-bold"
+                : "text-slate-600 hover:text-slate-900"
             }`}
           >
             <Plus className="w-4 h-4 text-[#1591DC]" />
             New Docket Entry
           </button>
           <button
-            onClick={() => setActiveTab('registry')}
+            onClick={() => setActiveTab("registry")}
             className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all flex items-center gap-2 ${
-              activeTab === 'registry'
-                ? 'bg-white text-[#2C5EAD] shadow-sm font-bold'
-                : 'text-slate-600 hover:text-slate-900'
+              activeTab === "registry"
+                ? "bg-white text-[#2C5EAD] shadow-sm font-bold"
+                : "text-slate-600 hover:text-slate-900"
             }`}
           >
             <FileText className="w-4 h-4 text-[#1591DC]" />
@@ -229,7 +391,7 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
       </div>
 
       {/* TAB 1: CREATE NEW DOCKET */}
-      {activeTab === 'create' && (
+      {activeTab === "create" && (
         <form onSubmit={handleSubmitDocket} className="space-y-8">
           {/* Section 1: General & Route Info */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 sm:p-8 space-y-6">
@@ -239,13 +401,30 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                   1
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold text-slate-900 font-heading">Route & Service Configuration</h2>
-                  <p className="text-xs text-slate-500 font-sans">Specify transit corridor, priority classification, and freight payment term.</p>
+                  <h2 className="text-lg font-bold text-slate-900 font-heading">
+                    Route & Service Configuration
+                  </h2>
+                  <p className="text-xs text-slate-500 font-sans">
+                    Specify transit corridor, priority classification, and
+                    freight payment term.
+                  </p>
                 </div>
               </div>
 
-              <div className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-800">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+              <div
+                className={`hidden sm:flex items-center gap-2 px-3 py-1 rounded-full border text-xs font-semibold ${
+                  availableAwbCount > 0
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                    : "bg-rose-50 border-rose-200 text-rose-800"
+                }`}
+              >
+                {isStockLoading ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : availableAwbCount > 0 ? (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                ) : (
+                  <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
+                )}
                 <span>{availableAwbCount} AWB Numbers in Stock</span>
               </div>
             </div>
@@ -291,13 +470,21 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                 </label>
                 <select
                   value={serviceMode}
-                  onChange={(e) => setServiceMode(e.target.value as DocketServiceMode)}
+                  onChange={(e) =>
+                    setServiceMode(e.target.value as DocketServiceMode)
+                  }
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-[#2C5EAD] focus:outline-none"
                 >
-                  <option value="EXPRESS_AIR">Air Express (Next Day Uplift)</option>
+                  <option value="EXPRESS_AIR">
+                    Air Express (Next Day Uplift)
+                  </option>
                   <option value="STANDARD_AIR">Standard Air Cargo</option>
-                  <option value="PRIORITY_AOG">Aircraft On Ground (AOG Critical)</option>
-                  <option value="COLD_CHAIN">Cold Chain Temperature Controlled</option>
+                  <option value="PRIORITY_AOG">
+                    Aircraft On Ground (AOG Critical)
+                  </option>
+                  <option value="COLD_CHAIN">
+                    Cold Chain Temperature Controlled
+                  </option>
                 </select>
               </div>
 
@@ -307,14 +494,138 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                 </label>
                 <select
                   value={paymentMode}
-                  onChange={(e) => setPaymentMode(e.target.value as DocketPaymentMode)}
+                  onChange={(e) =>
+                    setPaymentMode(e.target.value as DocketPaymentMode)
+                  }
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-[#2C5EAD] focus:outline-none"
                 >
-                  <option value="ON_ACCOUNT">On Account (Monthly Billing)</option>
+                  <option value="ON_ACCOUNT">
+                    On Account (Monthly Billing)
+                  </option>
                   <option value="PREPAID">Prepaid (Paid by Shipper)</option>
-                  <option value="TO_PAY">To-Pay (Collect at Destination)</option>
+                  <option value="TO_PAY">
+                    To-Pay (Collect at Destination)
+                  </option>
                 </select>
               </div>
+            </div>
+
+            {/* AWB fixed for this docket */}
+            <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-[#2C5EAD]/10 text-[#2C5EAD] flex items-center justify-center shrink-0">
+                    <Ticket className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+                      AWB Fixed for this Docket
+                    </span>
+                    {isStockLoading && availableAwbs.length === 0 ? (
+                      <span className="text-sm font-semibold text-slate-500 mt-1 flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Loading AWB stock…
+                      </span>
+                    ) : awbToAssign ? (
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-2xl font-bold font-mono text-[#2C5EAD] tracking-wide">
+                          {awbToAssign}
+                        </span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#2C5EAD] text-white font-bold">
+                          {isAutoAwb ? "AUTO" : "MANUAL"}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-sm font-semibold text-rose-600 mt-1 block">
+                        No AWB in stock – docket will be saved without an AWB
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <select
+                    value={selectedAwb}
+                    onChange={(e) => setSelectedAwb(e.target.value)}
+                    disabled={availableAwbs.length === 0}
+                    className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-sm font-mono font-semibold text-slate-800 disabled:opacity-50 max-w-[260px]"
+                  >
+                    <option value="">Auto – next in stock</option>
+                    {availableAwbs.map((awb) => (
+                      <option key={awb.id} value={awb.fullAwbNumber}>
+                        {awb.fullAwbNumber}
+                      </option>
+                    ))}
+                  </select>
+
+                  {!externalStock && (
+                    <button
+                      type="button"
+                      onClick={loadStock}
+                      disabled={isStockLoading}
+                      title="Refresh AWB stock"
+                      className="p-2.5 rounded-xl border border-slate-300 bg-white text-slate-600 hover:text-[#2C5EAD] hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      <RefreshCw
+                        className={`w-4 h-4 ${isStockLoading ? "animate-spin" : ""}`}
+                      />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {stockError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{stockError}</span>
+                </div>
+              )}
+
+              {/* Quick-pick chips */}
+              {availableAwbs.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-semibold text-slate-600">
+                      Available AWB numbers ({availableAwbs.length})
+                    </span>
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Search AWB..."
+                        value={awbSearch}
+                        onChange={(e) => setAwbSearch(e.target.value)}
+                        className="pl-9 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#2C5EAD] font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {visibleAwbChips.map((awb) => {
+                      const active = awb.fullAwbNumber === awbToAssign;
+                      return (
+                        <button
+                          key={awb.id}
+                          type="button"
+                          onClick={() => setSelectedAwb(awb.fullAwbNumber)}
+                          className={`px-3 py-1 rounded-full text-xs font-mono font-bold border transition-all ${
+                            active
+                              ? "bg-[#2C5EAD] text-white border-[#2C5EAD] shadow-sm"
+                              : "bg-white text-slate-700 border-slate-300 hover:border-[#2C5EAD] hover:text-[#2C5EAD]"
+                          }`}
+                        >
+                          {awb.fullAwbNumber}
+                        </button>
+                      );
+                    })}
+                    {visibleAwbChips.length === 0 && (
+                      <span className="text-xs text-slate-400 italic">
+                        No AWB matches your search.
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -332,15 +643,21 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                   className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-slate-300 bg-slate-50 text-slate-700"
                 >
                   <option value="">Quick Pick Shipper...</option>
-                  {partners.filter(p => p.type === 'SHIPPER' || p.type === 'BOTH').map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
+                  {partners
+                    .filter((p) => p.type === "SHIPPER" || p.type === "BOTH")
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
                 </select>
               </div>
 
               <div className="space-y-3 font-sans">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Company / Consignor Full Name *</label>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    Company / Consignor Full Name *
+                  </label>
                   <input
                     type="text"
                     required
@@ -351,7 +668,9 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Street Address & City *</label>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    Street Address & City *
+                  </label>
                   <input
                     type="text"
                     required
@@ -363,7 +682,9 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Contact Phone</label>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">
+                      Contact Phone
+                    </label>
                     <input
                       type="text"
                       placeholder="+91-98110-44921"
@@ -373,7 +694,9 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">GSTIN / Tax ID</label>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">
+                      GSTIN / Tax ID
+                    </label>
                     <input
                       type="text"
                       placeholder="06AAACP4920B1Z4"
@@ -398,15 +721,21 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                   className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-slate-300 bg-slate-50 text-slate-700"
                 >
                   <option value="">Quick Pick Consignee...</option>
-                  {partners.filter(p => p.type === 'CONSIGNEE' || p.type === 'BOTH').map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
+                  {partners
+                    .filter((p) => p.type === "CONSIGNEE" || p.type === "BOTH")
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
                 </select>
               </div>
 
               <div className="space-y-3 font-sans">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Consignee Full Legal Name *</label>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    Consignee Full Legal Name *
+                  </label>
                   <input
                     type="text"
                     required
@@ -417,7 +746,9 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Delivery Address & Destination City *</label>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    Delivery Address & Destination City *
+                  </label>
                   <input
                     type="text"
                     required
@@ -429,7 +760,9 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Contact Phone</label>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">
+                      Contact Phone
+                    </label>
                     <input
                       type="text"
                       placeholder="+49-69-690-34900"
@@ -439,7 +772,9 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Tax ID / VAT No</label>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">
+                      Tax ID / VAT No
+                    </label>
                     <input
                       type="text"
                       placeholder="DE814920491"
@@ -465,7 +800,8 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                     Dimensions, Volumetric Weight &amp; Commodity
                   </h2>
                   <p className="text-xs text-slate-500 font-sans">
-                    Standard IATA volumetric weight formula: (L × W × H in cm × Pieces) ÷ 6000
+                    Standard IATA volumetric weight formula: (L × W × H in cm ×
+                    Pieces) ÷ 6000
                   </p>
                 </div>
               </div>
@@ -491,51 +827,86 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
               </div>
 
               {dimensions.map((dim, idx) => (
-                <div key={idx} className="grid grid-cols-1 md:grid-cols-12 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200 items-center">
+                <div
+                  key={idx}
+                  className="grid grid-cols-1 md:grid-cols-12 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200 items-center"
+                >
                   <div className="md:col-span-3">
-                    <label className="block md:hidden text-xs font-semibold text-slate-600 mb-1">Length (cm)</label>
+                    <label className="block md:hidden text-xs font-semibold text-slate-600 mb-1">
+                      Length (cm)
+                    </label>
                     <input
                       type="number"
                       min={1}
                       required
                       value={dim.lengthCm}
-                      onChange={(e) => handleUpdateDimension(idx, 'lengthCm', Number(e.target.value))}
+                      onChange={(e) =>
+                        handleUpdateDimension(
+                          idx,
+                          "lengthCm",
+                          Number(e.target.value),
+                        )
+                      }
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-mono font-semibold"
                     />
                   </div>
 
                   <div className="md:col-span-3">
-                    <label className="block md:hidden text-xs font-semibold text-slate-600 mb-1">Width (cm)</label>
+                    <label className="block md:hidden text-xs font-semibold text-slate-600 mb-1">
+                      Width (cm)
+                    </label>
                     <input
                       type="number"
                       min={1}
                       required
                       value={dim.widthCm}
-                      onChange={(e) => handleUpdateDimension(idx, 'widthCm', Number(e.target.value))}
+                      onChange={(e) =>
+                        handleUpdateDimension(
+                          idx,
+                          "widthCm",
+                          Number(e.target.value),
+                        )
+                      }
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-mono font-semibold"
                     />
                   </div>
 
                   <div className="md:col-span-3">
-                    <label className="block md:hidden text-xs font-semibold text-slate-600 mb-1">Height (cm)</label>
+                    <label className="block md:hidden text-xs font-semibold text-slate-600 mb-1">
+                      Height (cm)
+                    </label>
                     <input
                       type="number"
                       min={1}
                       required
                       value={dim.heightCm}
-                      onChange={(e) => handleUpdateDimension(idx, 'heightCm', Number(e.target.value))}
+                      onChange={(e) =>
+                        handleUpdateDimension(
+                          idx,
+                          "heightCm",
+                          Number(e.target.value),
+                        )
+                      }
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-mono font-semibold"
                     />
                   </div>
 
                   <div className="md:col-span-2">
-                    <label className="block md:hidden text-xs font-semibold text-slate-600 mb-1">Pieces</label>
+                    <label className="block md:hidden text-xs font-semibold text-slate-600 mb-1">
+                      Pieces
+                    </label>
                     <input
                       type="number"
                       min={1}
                       required
                       value={dim.pieces}
-                      onChange={(e) => handleUpdateDimension(idx, 'pieces', Number(e.target.value))}
+                      onChange={(e) =>
+                        handleUpdateDimension(
+                          idx,
+                          "pieces",
+                          Number(e.target.value),
+                        )
+                      }
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-mono font-semibold"
                     />
                   </div>
@@ -547,8 +918,8 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                       onClick={() => handleRemoveDimensionRow(idx)}
                       className={`p-2 rounded-lg transition-colors ${
                         dimensions.length <= 1
-                          ? 'text-slate-300 cursor-not-allowed'
-                          : 'text-rose-500 hover:bg-rose-50'
+                          ? "text-slate-300 cursor-not-allowed"
+                          : "text-rose-500 hover:bg-rose-50"
                       }`}
                       title="Remove dimension line"
                     >
@@ -562,12 +933,18 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
             {/* Live Weight Slabs & Calculation Summary */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-5 bg-gradient-to-r from-blue-50/60 to-sky-50/60 rounded-2xl border border-blue-200">
               <div>
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Total Pieces</span>
-                <span className="text-xl font-bold font-mono text-slate-900 mt-1 block">{totalPieces} Pcs</span>
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+                  Total Pieces
+                </span>
+                <span className="text-xl font-bold font-mono text-slate-900 mt-1 block">
+                  {totalPieces} Pcs
+                </span>
               </div>
 
               <div>
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Actual Gross Weight</span>
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+                  Actual Gross Weight
+                </span>
                 <div className="flex items-center gap-2 mt-1">
                   <input
                     type="number"
@@ -577,25 +954,31 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                     onChange={(e) => setActualWeightKg(Number(e.target.value))}
                     className="w-24 px-2.5 py-1 rounded-lg border border-slate-300 font-mono font-bold text-slate-900 bg-white text-base"
                   />
-                  <span className="text-sm font-semibold text-slate-600">kg</span>
+                  <span className="text-sm font-semibold text-slate-600">
+                    kg
+                  </span>
                 </div>
               </div>
 
               <div>
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Volumetric (L×W×H÷6000)</span>
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+                  Volumetric (L×W×H÷6000)
+                </span>
                 <span className="text-xl font-bold font-mono text-[#1591DC] mt-1 block">
                   {volumetricWeightKg} kg
                 </span>
               </div>
 
               <div>
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Chargeable Weight (Locked)</span>
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+                  Chargeable Weight (Locked)
+                </span>
                 <div className="flex items-center gap-1.5 mt-1">
                   <span className="text-2xl font-bold font-mono text-[#2C5EAD]">
                     {chargeableWeightKg} kg
                   </span>
                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#2C5EAD] text-white font-bold">
-                    {chargeableWeightKg === volumetricWeightKg ? 'VOL' : 'ACT'}
+                    {chargeableWeightKg === volumetricWeightKg ? "VOL" : "ACT"}
                   </span>
                 </div>
               </div>
@@ -604,7 +987,9 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
             {/* Commodity, Package Type & E-Way Bill */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 pt-4 border-t border-slate-100">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Packaging Type *</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Packaging Type *
+                </label>
                 <select
                   value={packageType}
                   onChange={(e) => setPackageType(e.target.value)}
@@ -613,17 +998,23 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                   <option value="Carton / Box">Carton / Corrugated Box</option>
                   <option value="Wooden Crate">Reinforced Wooden Crate</option>
                   <option value="Pallet">Standard Euro / Cargo Pallet</option>
-                  <option value="Insulated Envirotainer">Insulated Cold-Chain Envirotainer</option>
+                  <option value="Insulated Envirotainer">
+                    Insulated Cold-Chain Envirotainer
+                  </option>
                   <option value="Steel Drum">Industrial Steel Drum</option>
                   <option value="Loose / Gunny Bag">Loose / Gunny Bags</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Special Handling Code</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Special Handling Code
+                </label>
                 <select
                   value={handlingCode}
-                  onChange={(e) => setHandlingCode(e.target.value as SpecialHandlingCode)}
+                  onChange={(e) =>
+                    setHandlingCode(e.target.value as SpecialHandlingCode)
+                  }
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm font-mono font-bold text-[#2C5EAD]"
                 >
                   <option value="GEN">GEN - General Cargo</option>
@@ -636,7 +1027,9 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Declared Value for Carriage (₹)</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Declared Value for Carriage (₹)
+                </label>
                 <input
                   type="number"
                   min={0}
@@ -647,7 +1040,9 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">GST E-Way Bill Number</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  GST E-Way Bill Number
+                </label>
                 <input
                   type="text"
                   placeholder="e.g. 281940182901"
@@ -658,7 +1053,9 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
               </div>
 
               <div className="sm:col-span-2 lg:col-span-4">
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Nature and Quantity of Goods *</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Nature and Quantity of Goods *
+                </label>
                 <input
                   type="text"
                   required
@@ -678,14 +1075,21 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                 3
               </div>
               <div>
-                <h2 className="text-lg font-bold text-slate-900 font-heading">Freight Charges, GST &amp; Grand Total</h2>
-                <p className="text-xs text-slate-500 font-sans">Automated statutory calculation with 18% GST and fuel surcharges.</p>
+                <h2 className="text-lg font-bold text-slate-900 font-heading">
+                  Freight Charges, GST &amp; Grand Total
+                </h2>
+                <p className="text-xs text-slate-500 font-sans">
+                  Automated statutory calculation with 18% GST and fuel
+                  surcharges.
+                </p>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Rate per Kg (₹) *</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Rate per Kg (₹) *
+                </label>
                 <input
                   type="number"
                   min={1}
@@ -697,7 +1101,9 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Docket / Stationery Fee (₹)</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Docket / Stationery Fee (₹)
+                </label>
                 <input
                   type="number"
                   min={0}
@@ -708,39 +1114,61 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Fuel Surcharge (11%)</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Fuel Surcharge (11%)
+                </label>
                 <div className="px-3.5 py-2 rounded-xl border border-slate-200 bg-slate-50 font-mono text-slate-700 text-sm">
                   ₹ {fuelSurcharge.toLocaleString()}
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Security Surcharge (4%)</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Security Surcharge (4%)
+                </label>
                 <div className="px-3.5 py-2 rounded-xl border border-slate-200 bg-slate-50 font-mono text-slate-700 text-sm">
                   ₹ {securitySurcharge.toLocaleString()}
                 </div>
               </div>
             </div>
 
+            {submitError && (
+              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{submitError}</span>
+              </div>
+            )}
+
             {/* Total Billing Ribbon */}
             <div className="p-6 rounded-2xl bg-slate-900 text-white flex flex-col sm:flex-row items-center justify-between gap-6 shadow-md">
               <div className="space-y-1 text-center sm:text-left">
-                <span className="text-xs font-medium text-slate-400">Total Payable Amount (incl. 18% GST)</span>
+                <span className="text-xs font-medium text-slate-400">
+                  Total Payable Amount (incl. 18% GST)
+                </span>
                 <div className="text-3xl font-extrabold font-mono text-[#1591DC]">
                   ₹ {totalAmount.toLocaleString()}
                 </div>
                 <p className="text-xs text-slate-400">
-                  Subtotal: ₹{subtotal.toLocaleString()} + CGST/SGST (18%): ₹{gstAmount.toLocaleString()}
+                  Subtotal: ₹{subtotal.toLocaleString()} + CGST/SGST (18%): ₹
+                  {gstAmount.toLocaleString()}
+                </p>
+                <p className="text-xs text-slate-300 font-mono">
+                  AWB: {awbToAssign || "Not assigned"}
                 </p>
               </div>
 
               <div className="flex items-center gap-3 w-full sm:w-auto">
                 <button
                   type="submit"
-                  className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-gradient-to-r from-[#2C5EAD] to-[#1591DC] hover:from-[#204580] hover:to-[#0f7ab9] text-white font-bold font-heading text-sm shadow-md transition-all flex items-center justify-center gap-2"
+                  disabled={isSubmitting}
+                  className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-gradient-to-r from-[#2C5EAD] to-[#1591DC] hover:from-[#204580] hover:to-[#0f7ab9] text-white font-bold font-heading text-sm shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Plus className="w-5 h-5" />
-                  Generate &amp; Save Docket
+                  {isSubmitting ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <Plus className="w-5 h-5" />
+                  )}
+                  {isSubmitting ? "Saving…" : "Generate & Save Docket"}
                 </button>
               </div>
             </div>
@@ -749,7 +1177,7 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
       )}
 
       {/* TAB 2: DOCKET REGISTRY & CONSIGNMENT NOTE TABLE */}
-      {activeTab === 'registry' && (
+      {activeTab === "registry" && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="relative flex-1 max-w-md">
@@ -778,7 +1206,7 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
               </select>
 
               <button
-                onClick={() => setActiveTab('create')}
+                onClick={() => setActiveTab("create")}
                 className="px-4 py-2 bg-[#2C5EAD] hover:bg-[#204580] text-white rounded-xl text-sm font-semibold flex items-center gap-1.5 transition-all shadow-sm"
               >
                 <Plus className="w-4 h-4" />
@@ -802,15 +1230,30 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
+                {filteredDockets.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={7}
+                      className="py-8 text-center text-slate-400 text-sm italic"
+                    >
+                      No dockets found.
+                    </td>
+                  </tr>
+                )}
+
                 {filteredDockets.map((docket) => (
-                  <tr key={docket.id} className="hover:bg-slate-50 transition-colors">
+                  <tr
+                    key={docket.id}
+                    className="hover:bg-slate-50 transition-colors"
+                  >
                     <td className="py-4 px-6">
                       <div className="font-mono font-bold text-[#2C5EAD]">
                         {docket.docketNumber}
                       </div>
                       <div className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
                         <Clock className="w-3 h-3" />
-                        {docket.bookingDate} • {docket.serviceMode.replace('_', ' ')}
+                        {docket.bookingDate} •{" "}
+                        {docket.serviceMode.replace("_", " ")}
                       </div>
                     </td>
 
@@ -820,17 +1263,28 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                         <span className="text-slate-400">→</span>
                         <span>{docket.destination}</span>
                       </div>
-                      <span className="text-xs text-slate-500 font-sans">{docket.paymentMode}</span>
+                      <span className="text-xs text-slate-500 font-sans">
+                        {docket.paymentMode}
+                      </span>
                     </td>
 
                     <td className="py-4 px-6 max-w-xs">
-                      <div className="font-semibold text-slate-900 truncate">{docket.consignorName}</div>
-                      <div className="text-xs text-slate-500 truncate">To: {docket.consigneeName}</div>
+                      <div className="font-semibold text-slate-900 truncate">
+                        {docket.consignorName}
+                      </div>
+                      <div className="text-xs text-slate-500 truncate">
+                        To: {docket.consigneeName}
+                      </div>
                     </td>
 
                     <td className="py-4 px-6 font-mono">
-                      <div className="text-slate-900 font-bold">{docket.pieces} pcs • {docket.chargeableWeightKg} kg</div>
-                      <div className="text-[11px] text-slate-400">Act: {docket.actualWeightKg}kg / Vol: {docket.volumetricWeightKg}kg</div>
+                      <div className="text-slate-900 font-bold">
+                        {docket.pieces} pcs • {docket.chargeableWeightKg} kg
+                      </div>
+                      <div className="text-[11px] text-slate-400">
+                        Act: {docket.actualWeightKg}kg / Vol:{" "}
+                        {docket.volumetricWeightKg}kg
+                      </div>
                     </td>
 
                     <td className="py-4 px-6 font-mono font-bold text-slate-900">
@@ -903,11 +1357,17 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                 {/* Copy selector */}
                 <select
                   value={printCopyType}
-                  onChange={(e) => setPrintCopyType(e.target.value as 'CONSIGNOR' | 'CONSIGNEE' | 'OFFICE')}
+                  onChange={(e) =>
+                    setPrintCopyType(
+                      e.target.value as "CONSIGNOR" | "CONSIGNEE" | "OFFICE",
+                    )
+                  }
                   className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-bold font-heading bg-white text-slate-800"
                 >
                   <option value="CONSIGNOR">Consignor Copy (Shipper)</option>
-                  <option value="CONSIGNEE">Consignee Copy (POD Delivery)</option>
+                  <option value="CONSIGNEE">
+                    Consignee Copy (POD Delivery)
+                  </option>
                   <option value="OFFICE">Station / Office Copy</option>
                 </select>
 
@@ -942,19 +1402,28 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 mt-1">
-                    Air Cargo Terminal, Indira Gandhi International Airport, New Delhi - 110037
+                    Air Cargo Terminal, Indira Gandhi International Airport, New
+                    Delhi - 110037
                   </p>
-                  <p className="text-xs text-slate-500 font-mono">GSTIN: 07AAACA9921D1Z8 • Phone: +91-11-2565-9800</p>
+                  <p className="text-xs text-slate-500 font-mono">
+                    GSTIN: 07AAACA9921D1Z8 • Phone: +91-11-2565-9800
+                  </p>
                 </div>
 
                 <div className="text-right">
                   <div className="text-xs font-bold font-heading px-2.5 py-1 rounded bg-slate-900 text-white inline-block mb-1">
-                    {printCopyType === 'CONSIGNOR' ? 'ORIGINAL - CONSIGNOR COPY' : printCopyType === 'CONSIGNEE' ? 'ORIGINAL - PROOF OF DELIVERY' : 'STATION / AUDIT COPY'}
+                    {printCopyType === "CONSIGNOR"
+                      ? "ORIGINAL - CONSIGNOR COPY"
+                      : printCopyType === "CONSIGNEE"
+                        ? "ORIGINAL - PROOF OF DELIVERY"
+                        : "STATION / AUDIT COPY"}
                   </div>
                   <div className="font-mono text-xl font-bold text-slate-900 tracking-wider">
                     {selectedDocketForPrint.docketNumber}
                   </div>
-                  <div className="text-xs font-mono text-slate-500">Date: {selectedDocketForPrint.bookingDate}</div>
+                  <div className="text-xs font-mono text-slate-500">
+                    Date: {selectedDocketForPrint.bookingDate}
+                  </div>
                 </div>
               </div>
 
@@ -962,38 +1431,68 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
               <div className="grid grid-cols-4 gap-4 p-3 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono">
                 <div>
                   <span className="text-slate-500 block">Origin Airport</span>
-                  <strong className="text-base text-[#2C5EAD]">{selectedDocketForPrint.origin}</strong>
+                  <strong className="text-base text-[#2C5EAD]">
+                    {selectedDocketForPrint.origin}
+                  </strong>
                 </div>
                 <div>
-                  <span className="text-slate-500 block">Destination Airport</span>
-                  <strong className="text-base text-[#1591DC]">{selectedDocketForPrint.destination}</strong>
+                  <span className="text-slate-500 block">
+                    Destination Airport
+                  </span>
+                  <strong className="text-base text-[#1591DC]">
+                    {selectedDocketForPrint.destination}
+                  </strong>
                 </div>
                 <div>
                   <span className="text-slate-500 block">Assigned MAWB</span>
-                  <strong className="text-sm text-slate-900">{selectedDocketForPrint.assignedAwb || 'Pending Assignment'}</strong>
+                  <strong className="text-sm text-slate-900">
+                    {selectedDocketForPrint.assignedAwb || "Pending Assignment"}
+                  </strong>
                 </div>
                 <div>
                   <span className="text-slate-500 block">Payment Mode</span>
-                  <strong className="text-sm text-slate-900">{selectedDocketForPrint.paymentMode}</strong>
+                  <strong className="text-sm text-slate-900">
+                    {selectedDocketForPrint.paymentMode}
+                  </strong>
                 </div>
               </div>
 
               {/* Consignor & Consignee boxes */}
               <div className="grid grid-cols-2 gap-6 text-xs">
                 <div className="p-4 border border-slate-300 rounded-lg space-y-1">
-                  <span className="font-bold text-slate-500 uppercase tracking-wider block mb-1">Consignor (Shipper)</span>
-                  <div className="font-bold text-sm text-slate-900">{selectedDocketForPrint.consignorName}</div>
-                  <p className="text-slate-600">{selectedDocketForPrint.consignorAddress}</p>
-                  <p className="font-mono text-slate-700">Phone: {selectedDocketForPrint.consignorPhone}</p>
-                  <p className="font-mono text-slate-700 font-semibold">GSTIN: {selectedDocketForPrint.consignorGst}</p>
+                  <span className="font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                    Consignor (Shipper)
+                  </span>
+                  <div className="font-bold text-sm text-slate-900">
+                    {selectedDocketForPrint.consignorName}
+                  </div>
+                  <p className="text-slate-600">
+                    {selectedDocketForPrint.consignorAddress}
+                  </p>
+                  <p className="font-mono text-slate-700">
+                    Phone: {selectedDocketForPrint.consignorPhone}
+                  </p>
+                  <p className="font-mono text-slate-700 font-semibold">
+                    GSTIN: {selectedDocketForPrint.consignorGst}
+                  </p>
                 </div>
 
                 <div className="p-4 border border-slate-300 rounded-lg space-y-1">
-                  <span className="font-bold text-slate-500 uppercase tracking-wider block mb-1">Consignee (Delivery Party)</span>
-                  <div className="font-bold text-sm text-slate-900">{selectedDocketForPrint.consigneeName}</div>
-                  <p className="text-slate-600">{selectedDocketForPrint.consigneeAddress}</p>
-                  <p className="font-mono text-slate-700">Phone: {selectedDocketForPrint.consigneePhone}</p>
-                  <p className="font-mono text-slate-700 font-semibold">GST/Tax ID: {selectedDocketForPrint.consigneeGst}</p>
+                  <span className="font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                    Consignee (Delivery Party)
+                  </span>
+                  <div className="font-bold text-sm text-slate-900">
+                    {selectedDocketForPrint.consigneeName}
+                  </div>
+                  <p className="text-slate-600">
+                    {selectedDocketForPrint.consigneeAddress}
+                  </p>
+                  <p className="font-mono text-slate-700">
+                    Phone: {selectedDocketForPrint.consigneePhone}
+                  </p>
+                  <p className="font-mono text-slate-700 font-semibold">
+                    GST/Tax ID: {selectedDocketForPrint.consigneeGst}
+                  </p>
                 </div>
               </div>
 
@@ -1014,13 +1513,26 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                     <tr className="divide-x divide-slate-200">
                       <td className="p-2.5 font-semibold text-slate-900">
                         {selectedDocketForPrint.natureOfGoods}
-                        <span className="block text-[11px] text-slate-500 font-mono">Special Handling: {selectedDocketForPrint.handlingCode}</span>
+                        <span className="block text-[11px] text-slate-500 font-mono">
+                          Special Handling:{" "}
+                          {selectedDocketForPrint.handlingCode}
+                        </span>
                       </td>
-                      <td className="p-2.5 text-slate-700">{selectedDocketForPrint.packageType}</td>
-                      <td className="p-2.5 font-mono text-center font-bold text-base">{selectedDocketForPrint.pieces}</td>
-                      <td className="p-2.5 font-mono text-right">{selectedDocketForPrint.actualWeightKg} kg</td>
-                      <td className="p-2.5 font-mono text-right text-slate-500">{selectedDocketForPrint.volumetricWeightKg} kg</td>
-                      <td className="p-2.5 font-mono text-right font-bold text-base text-[#2C5EAD]">{selectedDocketForPrint.chargeableWeightKg} kg</td>
+                      <td className="p-2.5 text-slate-700">
+                        {selectedDocketForPrint.packageType}
+                      </td>
+                      <td className="p-2.5 font-mono text-center font-bold text-base">
+                        {selectedDocketForPrint.pieces}
+                      </td>
+                      <td className="p-2.5 font-mono text-right">
+                        {selectedDocketForPrint.actualWeightKg} kg
+                      </td>
+                      <td className="p-2.5 font-mono text-right text-slate-500">
+                        {selectedDocketForPrint.volumetricWeightKg} kg
+                      </td>
+                      <td className="p-2.5 font-mono text-right font-bold text-base text-[#2C5EAD]">
+                        {selectedDocketForPrint.chargeableWeightKg} kg
+                      </td>
                     </tr>
                   </tbody>
                 </table>
@@ -1030,42 +1542,75 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
               <div className="grid grid-cols-2 gap-6 pt-2">
                 <div className="text-xs space-y-1.5 text-slate-600 font-mono">
                   {selectedDocketForPrint.ewayBillNumber && (
-                    <div>E-Way Bill: <strong>{selectedDocketForPrint.ewayBillNumber}</strong></div>
+                    <div>
+                      E-Way Bill:{" "}
+                      <strong>{selectedDocketForPrint.ewayBillNumber}</strong>
+                    </div>
                   )}
-                  <div>Declared Value for Carriage: <strong>₹{selectedDocketForPrint.declaredValue.toLocaleString()}</strong></div>
+                  <div>
+                    Declared Value for Carriage:{" "}
+                    <strong>
+                      ₹{selectedDocketForPrint.declaredValue.toLocaleString()}
+                    </strong>
+                  </div>
                   <div className="pt-2 text-[10px] text-slate-500 font-sans leading-relaxed">
-                    Subject to standard conditions of air carriage. The carrier certifies that the goods described above have been received in apparent good order and condition.
+                    Subject to standard conditions of air carriage. The carrier
+                    certifies that the goods described above have been received
+                    in apparent good order and condition.
                   </div>
                 </div>
 
                 <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-1.5 text-xs font-mono">
                   <div className="flex justify-between">
-                    <span className="text-slate-600">Freight Charge ({selectedDocketForPrint.chargeableWeightKg} kg @ ₹{selectedDocketForPrint.ratePerKg}):</span>
-                    <span>₹{selectedDocketForPrint.freightAmount.toLocaleString()}</span>
+                    <span className="text-slate-600">
+                      Freight Charge (
+                      {selectedDocketForPrint.chargeableWeightKg} kg @ ₹
+                      {selectedDocketForPrint.ratePerKg}):
+                    </span>
+                    <span>
+                      ₹{selectedDocketForPrint.freightAmount.toLocaleString()}
+                    </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-600">Docket / Stationery Fee:</span>
+                    <span className="text-slate-600">
+                      Docket / Stationery Fee:
+                    </span>
                     <span>₹{selectedDocketForPrint.docketFee}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-600">Fuel Surcharge (11%):</span>
-                    <span>₹{selectedDocketForPrint.fuelSurcharge.toLocaleString()}</span>
+                    <span className="text-slate-600">
+                      Fuel Surcharge (11%):
+                    </span>
+                    <span>
+                      ₹{selectedDocketForPrint.fuelSurcharge.toLocaleString()}
+                    </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-600">Security Surcharge (4%):</span>
-                    <span>₹{selectedDocketForPrint.securitySurcharge.toLocaleString()}</span>
+                    <span className="text-slate-600">
+                      Security Surcharge (4%):
+                    </span>
+                    <span>
+                      ₹
+                      {selectedDocketForPrint.securitySurcharge.toLocaleString()}
+                    </span>
                   </div>
                   <div className="flex justify-between font-semibold border-t border-slate-200 pt-1">
                     <span>Taxable Value:</span>
-                    <span>₹{selectedDocketForPrint.subtotal.toLocaleString()}</span>
+                    <span>
+                      ₹{selectedDocketForPrint.subtotal.toLocaleString()}
+                    </span>
                   </div>
                   <div className="flex justify-between text-slate-600">
                     <span>GST @ 18%:</span>
-                    <span>₹{selectedDocketForPrint.gstAmount.toLocaleString()}</span>
+                    <span>
+                      ₹{selectedDocketForPrint.gstAmount.toLocaleString()}
+                    </span>
                   </div>
                   <div className="flex justify-between text-sm font-bold text-[#2C5EAD] border-t-2 border-slate-800 pt-1">
                     <span>Grand Total:</span>
-                    <span>₹{selectedDocketForPrint.totalAmount.toLocaleString()}</span>
+                    <span>
+                      ₹{selectedDocketForPrint.totalAmount.toLocaleString()}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1074,15 +1619,21 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
               <div className="grid grid-cols-3 gap-6 pt-6 border-t border-slate-300 text-xs text-center font-sans">
                 <div className="space-y-8">
                   <div className="h-10 border-b border-dashed border-slate-400"></div>
-                  <span className="text-slate-600">Consignor / Shipper Signature</span>
+                  <span className="text-slate-600">
+                    Consignor / Shipper Signature
+                  </span>
                 </div>
                 <div className="space-y-8">
                   <div className="h-10 border-b border-dashed border-slate-400"></div>
-                  <span className="text-slate-600">Driver / Pick-up Executive</span>
+                  <span className="text-slate-600">
+                    Driver / Pick-up Executive
+                  </span>
                 </div>
                 <div className="space-y-8">
                   <div className="h-10 border-b border-dashed border-slate-400"></div>
-                  <span className="text-slate-600">Authorized Cargo Receiving Officer</span>
+                  <span className="text-slate-600">
+                    Authorized Cargo Receiving Officer
+                  </span>
                 </div>
               </div>
             </div>
