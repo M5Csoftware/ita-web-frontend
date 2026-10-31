@@ -25,17 +25,8 @@ interface TestResult {
   response: unknown;
 }
 
-function getDefaultPayload(item: InterfaceItem | null): string {
-  if (!item) return '';
-  if (item.type === 'REST_API') {
-    return JSON.stringify({ ping: true, clientTimestamp: new Date().toISOString(), testMode: true }, null, 2);
-  } else if (item.type === 'WEBHOOK') {
-    return JSON.stringify({ event: 'ping.test', id: `evt-${Date.now()}` }, null, 2);
-  } else if (item.type === 'EDI') {
-    return "UNA:+.? 'UNB+UNOC:3+SENDER+RECEIVER+261029:1700+0001'...";
-  } else {
-    return JSON.stringify({ query: '{ healthCheck { status uptime } }' }, null, 2);
-  }
+function getDefaultPayload(): string {
+  return '';
 }
 
 export const InterfaceTestDrawer: React.FC<InterfaceTestDrawerProps> = ({
@@ -57,7 +48,7 @@ const InterfaceTestDrawerInner: React.FC<{
   onClose: () => void;
   item: InterfaceItem;
 }> = ({ onClose, item }) => {
-  const [requestBody, setRequestBody] = useState(() => getDefaultPayload(item));
+  const [requestBody, setRequestBody] = useState(getDefaultPayload);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<TestResult | null>(null);
   const [copied, setCopied] = useState(false);
@@ -72,7 +63,12 @@ const InterfaceTestDrawerInner: React.FC<{
         body: JSON.stringify({ body: requestBody }),
       });
       const data = await res.json();
-      setResult(data);
+      setResult({
+        statusCode: res.status,
+        statusText: data.statusText || res.statusText,
+        latencyMs: data.latencyMs || 0,
+        response: data.response ?? data,
+      });
     } catch (err) {
       setResult({
         statusCode: 500,
@@ -141,7 +137,7 @@ const InterfaceTestDrawerInner: React.FC<{
               <label className="font-semibold text-slate-700">Request Body / Payload</label>
               <button
                 type="button"
-                onClick={() => setRequestBody(getDefaultPayload(item))}
+                onClick={() => setRequestBody(getDefaultPayload())}
                 className="text-[11px] text-[#2C5EAD] hover:underline font-medium"
               >
                 Reset Default

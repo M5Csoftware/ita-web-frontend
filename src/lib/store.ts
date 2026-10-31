@@ -1,22 +1,19 @@
 import { InterfaceItem, TransactionRecord } from '@/types/interface';
-import { INITIAL_INTERFACES, INITIAL_TRANSACTIONS } from './mock-data';
 
-// Global singleton in memory for dev server persistence
 declare global {
+  var __ITA_STORE_VERSION__: number | undefined;
   var __ITA_INTERFACES__: InterfaceItem[] | undefined;
   var __ITA_TRANSACTIONS__: TransactionRecord[] | undefined;
 }
 
-if (!global.__ITA_INTERFACES__) {
-  global.__ITA_INTERFACES__ = [...INITIAL_INTERFACES];
-}
-
-if (!global.__ITA_TRANSACTIONS__) {
-  global.__ITA_TRANSACTIONS__ = [...INITIAL_TRANSACTIONS];
+if (global.__ITA_STORE_VERSION__ !== 1) {
+  global.__ITA_INTERFACES__ = [];
+  global.__ITA_TRANSACTIONS__ = [];
+  global.__ITA_STORE_VERSION__ = 1;
 }
 
 export function getInterfaces(): InterfaceItem[] {
-  return global.__ITA_INTERFACES__ || INITIAL_INTERFACES;
+  return global.__ITA_INTERFACES__ ?? [];
 }
 
 export function setInterfaces(items: InterfaceItem[]): void {
@@ -24,7 +21,7 @@ export function setInterfaces(items: InterfaceItem[]): void {
 }
 
 export function getTransactions(): TransactionRecord[] {
-  return global.__ITA_TRANSACTIONS__ || INITIAL_TRANSACTIONS;
+  return global.__ITA_TRANSACTIONS__ ?? [];
 }
 
 export function addTransaction(record: TransactionRecord): void {

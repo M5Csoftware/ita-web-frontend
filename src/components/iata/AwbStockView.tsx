@@ -26,15 +26,14 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
   onAddStockSeries,
   onVoidAwb,
 }) => {
-  const [selectedAirline, setSelectedAirline] = useState('098');
-  const [fromSerial, setFromSerial] = useState('7241890');
-  const [toSerial, setToSerial] = useState('7241899');
-  const [testSerial, setTestSerial] = useState('72418935');
+  const [selectedAirline, setSelectedAirline] = useState('');
+  const [serialNumber, setSerialNumber] = useState('');
+  const [testSerial, setTestSerial] = useState('');
   const [testResult, setTestResult] = useState<boolean | null>(null);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [voidingId, setVoidingId] = useState<string | null>(null);
-  const [voidReason, setVoidReason] = useState('Physical foil cancelled / damaged');
+  const [voidReason, setVoidReason] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
   const handleTestMod7 = () => {
@@ -44,20 +43,15 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
 
   const handleGenerateStock = (e: React.FormEvent) => {
     e.preventDefault();
-    const fromNum = parseInt(fromSerial, 10);
-    const toNum = parseInt(toSerial, 10);
+    const serialNum = parseInt(serialNumber, 10);
 
-    if (isNaN(fromNum) || isNaN(toNum) || fromNum > toNum) {
-      alert('Please enter a valid 7-digit numerical range.');
+    if (isNaN(serialNum) || serialNumber.length !== 8) {
+      alert('Please enter a valid 8-digit numerical serial number.');
       return;
     }
 
-    if (toNum - fromNum > 100) {
-      alert('Maximum 100 serials can be added per batch.');
-      return;
-    }
-
-    onAddStockSeries(selectedAirline, fromNum, toNum);
+    const fromNum = parseInt(serialNumber.slice(0, 7), 10);
+    onAddStockSeries(selectedAirline, fromNum, fromNum);
     setSuccessMsg(`Successfully generated IATA Mod-7 verified AWB stock series for airline ${selectedAirline}`);
     setTimeout(() => setSuccessMsg(''), 4000);
   };
@@ -100,7 +94,7 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
             Register Airline Stock Series
           </h3>
           <p className="text-xs sm:text-sm text-slate-500 mb-5 font-normal">
-            Input the 7-digit starting and ending series provided by the airline. The system calculates and affixes the 8th Mod-7 check digit automatically.
+            Input the 8-digit serial number provided by the airline. The system calculates and affixes the Mod-7 check digit automatically.
           </p>
 
           {successMsg && (
@@ -111,7 +105,7 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
           )}
 
           <form onSubmit={handleGenerateStock} className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold font-heading text-slate-700 mb-1.5">
                   Airline (3-digit Prefix)
@@ -131,31 +125,16 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
 
               <div>
                 <label className="block text-xs font-bold font-heading text-slate-700 mb-1.5">
-                  From 7-Digit Serial
+                  8-Digit Serial Number
                 </label>
                 <input
                   type="text"
-                  maxLength={7}
+                  maxLength={8}
                   required
-                  value={fromSerial}
-                  onChange={(e) => setFromSerial(e.target.value)}
+                  value={serialNumber}
+                  onChange={(e) => setSerialNumber(e.target.value)}
                   className="w-full px-3.5 py-2.5 font-mono text-sm bg-white border border-slate-300 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#2C5EAD]/20 focus:border-[#2C5EAD]"
-                  placeholder="e.g. 7241890"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold font-heading text-slate-700 mb-1.5">
-                  To 7-Digit Serial
-                </label>
-                <input
-                  type="text"
-                  maxLength={7}
-                  required
-                  value={toSerial}
-                  onChange={(e) => setToSerial(e.target.value)}
-                  className="w-full px-3.5 py-2.5 font-mono text-sm bg-white border border-slate-300 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#2C5EAD]/20 focus:border-[#2C5EAD]"
-                  placeholder="e.g. 7241899"
+                  placeholder="e.g. 7241899X"
                 />
               </div>
             </div>
@@ -198,7 +177,7 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
                     setTestResult(null);
                   }}
                   className="w-full px-3.5 py-2 font-mono text-sm bg-slate-50 border border-slate-300 rounded-xl text-slate-900 focus:outline-none focus:border-[#2C5EAD]"
-                  placeholder="e.g. 72418935"
+                  placeholder="Enter 8-digit serial"
                 />
               </div>
 
@@ -404,4 +383,3 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
     </div>
   );
 };
-

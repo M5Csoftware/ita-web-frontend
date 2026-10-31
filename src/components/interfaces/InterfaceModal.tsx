@@ -47,7 +47,7 @@ const InterfaceModalInner: React.FC<{
     timeoutSeconds: initialData?.timeoutSeconds ?? 30,
     retryAttempts: initialData?.retryAttempts ?? 3,
     alertOnFailure: initialData?.alertOnFailure ?? true,
-    tagsString: initialData?.tags ? initialData.tags.join(', ') : 'Logistics, API',
+    tagsString: initialData?.tags ? initialData.tags.join(', ') : '',
   });
 
   const [saving, setSaving] = useState(false);
@@ -123,7 +123,7 @@ const InterfaceModalInner: React.FC<{
               <input
                 type="text"
                 required
-                placeholder="e.g. WMS Order Dispatch API"
+                placeholder="Enter interface name"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#2C5EAD]/20 focus:border-[#2C5EAD]"
@@ -157,7 +157,7 @@ const InterfaceModalInner: React.FC<{
               </label>
               <input
                 type="text"
-                placeholder="e.g. SAP ERP, Warehouse Core"
+                placeholder="Enter source system"
                 value={formData.sourceSystem}
                 onChange={(e) => setFormData({ ...formData, sourceSystem: e.target.value })}
                 className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#2C5EAD]/20 focus:border-[#2C5EAD]"
@@ -170,7 +170,7 @@ const InterfaceModalInner: React.FC<{
               </label>
               <input
                 type="text"
-                placeholder="e.g. Manhattan WMS, Client Portal"
+                placeholder="Enter target system"
                 value={formData.targetSystem}
                 onChange={(e) => setFormData({ ...formData, targetSystem: e.target.value })}
                 className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#2C5EAD]/20 focus:border-[#2C5EAD]"
@@ -309,7 +309,7 @@ const InterfaceModalInner: React.FC<{
             </label>
             <input
               type="text"
-              placeholder="e.g. Warehouse, Logistics, Critical, Finance"
+              placeholder="Enter tags separated by commas"
               value={formData.tagsString}
               onChange={(e) => setFormData({ ...formData, tagsString: e.target.value })}
               className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#2C5EAD]/20 focus:border-[#2C5EAD]"
