@@ -1266,13 +1266,6 @@ ${hawbLines}`;
           {effectiveActivePage === 'settings' && allowedTabs.includes('settings') && (
             <SettingsPermissionsView
               currentUser={currentUser!}
-              users={users}
-              onUpdateUserPermissions={handleUpdateUserPermissions}
-              onUpdateUserRole={handleUpdateUserRole}
-              onAddUser={handleAddUser}
-              onToggleUserStatus={handleToggleUserStatus}
-              onDeleteUser={handleDeleteUser}
-              onResetUserPermissions={handleResetUserPermissions}
               onSimulateUser={handleSimulateUser}
             />
           )}
