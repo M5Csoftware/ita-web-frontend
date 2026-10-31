@@ -193,7 +193,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ users, onLogin }) => {
             </span>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 font-sans">
-            Air Cargo Operations, e-AWB EDI &amp; CASS Settlement
+            Air Cargo Operation, e-AWB EDI &amp; CASS Settlement
           </p>
         </div>
 
