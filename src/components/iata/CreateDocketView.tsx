@@ -32,32 +32,61 @@ import {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
+/* ---------- Fetch helper (outside component so it is stable) ---------- */
+async function apiFetch<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const message =
+      (data && (data.message || data.error)) ||
+      `Request failed with status ${res.status}`;
+    throw new Error(message);
+  }
+
+  return data as T;
+}
+
 interface CreateDocketViewProps {
-  dockets: DocketItem[];
+  /** Kept for compatibility. Dockets are now loaded from / saved to the DB. */
+  dockets?: DocketItem[];
   airports: Airport[];
   partners: ShipperConsignee[];
-  /** Optional: if the parent already holds the stock list, pass it here and the
-   *  component will not call the backend itself. */
+  /** Kept for compatibility. AWB stock is now loaded from the DB. */
   awbStock?: AwbStockItem[];
   /** Kept optional for backward compatibility – count is now derived from stock. */
   availableAwbCount?: number;
-  onCreateDocket: (
+  /** Optional notification hook. The component itself saves to the DB. */
+  onCreateDocket?: (
     docket: Omit<DocketItem, "id" | "createdAt" | "status">,
   ) => void | Promise<void>;
-  onAssignAwbToDocket: (docket: DocketItem) => void;
+  /** Optional notification hook. The component itself calls assign-awb. */
+  onAssignAwbToDocket?: (docket: DocketItem) => void;
 }
 
 export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
-  dockets,
   airports,
   partners,
-  awbStock: externalStock,
-  onCreateDocket,
-  onAssignAwbToDocket,
 }) => {
   const [activeTab, setActiveTab] = useState<"create" | "registry">("create");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+
+  // ---------- Dockets (from backend) ----------
+  const [dockets, setDockets] = useState<DocketItem[]>([]);
+  const [isDocketsLoading, setIsDocketsLoading] = useState(false);
+  const [registryError, setRegistryError] = useState("");
+  const [assigningId, setAssigningId] = useState<string | null>(null);
 
   // ---------- AWB stock (from backend) ----------
   const [localStock, setLocalStock] = useState<AwbStockItem[]>([]);
@@ -66,7 +95,8 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
   const [selectedAwb, setSelectedAwb] = useState<string>(""); // '' = auto (next in stock)
   const [awbSearch, setAwbSearch] = useState("");
 
-  const stock = externalStock ?? localStock;
+  // DB is the single source of truth
+  const stock = localStock;
 
   // Form State
   const [origin, setOrigin] = useState("");
@@ -113,34 +143,8 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
     "CONSIGNOR" | "CONSIGNEE" | "OFFICE"
   >("CONSIGNOR");
 
-  /* ---------- Inline fetch helper ---------- */
-  const apiFetch = async <T,>(
-    path: string,
-    options: RequestInit = {},
-  ): Promise<T> => {
-    const res = await fetch(`${API_BASE}${path}`, {
-      headers: {
-        "Content-Type": "application/json",
-        ...(options.headers || {}),
-      },
-      ...options,
-    });
-
-    const data = await res.json().catch(() => ({}));
-
-    if (!res.ok) {
-      const message =
-        (data && (data.message || data.error)) ||
-        `Request failed with status ${res.status}`;
-      throw new Error(message);
-    }
-
-    return data as T;
-  };
-
   /* ---------- Load AWB stock from API ---------- */
   const loadStock = useCallback(async () => {
-    if (externalStock) return;
     setIsStockLoading(true);
     setStockError("");
     try {
@@ -155,12 +159,30 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
     } finally {
       setIsStockLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [externalStock]);
+  }, []);
+
+  /* ---------- Load dockets from API ---------- */
+  const loadDockets = useCallback(async () => {
+    setIsDocketsLoading(true);
+    setRegistryError("");
+    try {
+      const data = await apiFetch<{
+        success: boolean;
+        count: number;
+        dockets: DocketItem[];
+      }>("/api/dockets");
+      setDockets(data.dockets || []);
+    } catch (err: any) {
+      setRegistryError(err.message || "Failed to load dockets.");
+    } finally {
+      setIsDocketsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     loadStock();
-  }, [loadStock]);
+    loadDockets();
+  }, [loadStock, loadDockets]);
 
   // Default origin / destination once airports are available
   useEffect(() => {
@@ -276,64 +298,87 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
     setAwbSearch("");
   };
 
+  /* ---------- Save docket to DB ---------- */
   const handleSubmitDocket = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError("");
     if (!consignorName || !consigneeName) return;
 
-    // Deterministic docket sequence
+    // Docket sequence based on what is already saved in the DB
     const sequenceNum = (dockets.length + 101).toString().padStart(4, "0");
     const generatedDocketNumber = `DKT-${origin}-${destination}-${sequenceNum}`;
 
+    const payload: Omit<DocketItem, "id" | "createdAt" | "status"> = {
+      docketNumber: generatedDocketNumber,
+      bookingDate: new Date().toISOString().split("T")[0],
+      serviceMode,
+      paymentMode,
+      origin,
+      destination,
+      consignorName,
+      consignorAddress,
+      consignorPhone,
+      consignorGst,
+      consigneeName,
+      consigneeAddress,
+      consigneePhone,
+      consigneeGst,
+      pieces: totalPieces || 1,
+      packageType,
+      actualWeightKg,
+      dimensions,
+      volumetricWeightKg,
+      chargeableWeightKg,
+      natureOfGoods,
+      handlingCode,
+      declaredValue,
+      ewayBillNumber: ewayBillNumber.trim() || undefined,
+      ratePerKg,
+      freightAmount,
+      docketFee,
+      fuelSurcharge,
+      securitySurcharge,
+      subtotal,
+      gstAmount,
+      totalAmount,
+      // AWB fixed for this docket (undefined if stock is empty)
+      assignedAwb: awbToAssign || undefined,
+    };
+
     setIsSubmitting(true);
     try {
-      await Promise.resolve(
-        onCreateDocket({
-          docketNumber: generatedDocketNumber,
-          bookingDate: new Date().toISOString().split("T")[0],
-          serviceMode,
-          paymentMode,
-          origin,
-          destination,
-          consignorName,
-          consignorAddress,
-          consignorPhone,
-          consignorGst,
-          consigneeName,
-          consigneeAddress,
-          consigneePhone,
-          consigneeGst,
-          pieces: totalPieces || 1,
-          packageType,
-          actualWeightKg,
-          dimensions,
-          volumetricWeightKg,
-          chargeableWeightKg,
-          natureOfGoods,
-          handlingCode,
-          declaredValue,
-          ewayBillNumber: ewayBillNumber.trim() || undefined,
-          ratePerKg,
-          freightAmount,
-          docketFee,
-          fuelSurcharge,
-          securitySurcharge,
-          subtotal,
-          gstAmount,
-          totalAmount,
-          // AWB fixed for this docket (undefined if stock is empty)
-          assignedAwb: awbToAssign || undefined,
-        }),
-      );
+      await apiFetch<{ success: boolean; docket: DocketItem }>("/api/dockets", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
 
-      // Refresh stock so the AWB just used disappears from "available"
-      await loadStock();
+      // Re-fetch from DB so registry + available AWBs match what is saved
+      await Promise.all([loadDockets(), loadStock()]);
       resetForm();
       setActiveTab("registry");
     } catch (err: any) {
       setSubmitError(err?.message || "Failed to save docket.");
+      // Stock may have changed (e.g. AWB taken elsewhere) – refresh it
+      loadStock();
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  /* ---------- Assign AWB to an existing docket ---------- */
+  const handleAssignAwb = async (docket: DocketItem) => {
+    setRegistryError("");
+    setAssigningId(docket.id);
+    try {
+      await apiFetch(`/api/dockets/${docket.id}/assign-awb`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      await Promise.all([loadDockets(), loadStock()]);
+    } catch (err: any) {
+      setRegistryError(err?.message || "Failed to assign AWB.");
+    } finally {
+      setAssigningId(null);
     }
   };
 
@@ -558,19 +603,17 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                     ))}
                   </select>
 
-                  {!externalStock && (
-                    <button
-                      type="button"
-                      onClick={loadStock}
-                      disabled={isStockLoading}
-                      title="Refresh AWB stock"
-                      className="p-2.5 rounded-xl border border-slate-300 bg-white text-slate-600 hover:text-[#2C5EAD] hover:bg-slate-50 disabled:opacity-50"
-                    >
-                      <RefreshCw
-                        className={`w-4 h-4 ${isStockLoading ? "animate-spin" : ""}`}
-                      />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={loadStock}
+                    disabled={isStockLoading}
+                    title="Refresh AWB stock"
+                    className="p-2.5 rounded-xl border border-slate-300 bg-white text-slate-600 hover:text-[#2C5EAD] hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    <RefreshCw
+                      className={`w-4 h-4 ${isStockLoading ? "animate-spin" : ""}`}
+                    />
+                  </button>
                 </div>
               </div>
 
@@ -1206,6 +1249,17 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
               </select>
 
               <button
+                onClick={loadDockets}
+                disabled={isDocketsLoading}
+                title="Refresh dockets"
+                className="p-2.5 rounded-xl border border-slate-300 bg-white text-slate-600 hover:text-[#2C5EAD] hover:bg-slate-50 disabled:opacity-50"
+              >
+                <RefreshCw
+                  className={`w-4 h-4 ${isDocketsLoading ? "animate-spin" : ""}`}
+                />
+              </button>
+
+              <button
                 onClick={() => setActiveTab("create")}
                 className="px-4 py-2 bg-[#2C5EAD] hover:bg-[#204580] text-white rounded-xl text-sm font-semibold flex items-center gap-1.5 transition-all shadow-sm"
               >
@@ -1214,6 +1268,13 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
               </button>
             </div>
           </div>
+
+          {registryError && (
+            <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>{registryError}</span>
+            </div>
+          )}
 
           {/* Dockets Table */}
           <div className="overflow-x-auto rounded-xl border border-slate-200">
@@ -1230,7 +1291,19 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
-                {filteredDockets.length === 0 && (
+                {isDocketsLoading && dockets.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={7}
+                      className="py-8 text-center text-slate-500 text-sm"
+                    >
+                      <Loader2 className="w-5 h-5 animate-spin inline mr-2" />
+                      Loading dockets…
+                    </td>
+                  </tr>
+                )}
+
+                {!isDocketsLoading && filteredDockets.length === 0 && (
                   <tr>
                     <td
                       colSpan={7}
@@ -1309,11 +1382,16 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                       <div className="flex items-center justify-end gap-2">
                         {!docket.assignedAwb && (
                           <button
-                            onClick={() => onAssignAwbToDocket(docket)}
-                            className="px-3 py-1.5 rounded-lg bg-[#2C5EAD]/10 hover:bg-[#2C5EAD]/20 text-[#2C5EAD] text-xs font-bold transition-all flex items-center gap-1"
+                            onClick={() => handleAssignAwb(docket)}
+                            disabled={assigningId === docket.id}
+                            className="px-3 py-1.5 rounded-lg bg-[#2C5EAD]/10 hover:bg-[#2C5EAD]/20 text-[#2C5EAD] text-xs font-bold transition-all flex items-center gap-1 disabled:opacity-50"
                             title="Assign Air Waybill Number from available stock"
                           >
-                            <Layers className="w-3.5 h-3.5" />
+                            {assigningId === docket.id ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Layers className="w-3.5 h-3.5" />
+                            )}
                             Assign AWB
                           </button>
                         )}
@@ -1395,7 +1473,7 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="font-extrabold text-2xl font-heading text-[#2C5EAD] tracking-tight">
-                      APEX GLOBAL CARGO LOGISTICS
+                      M5 CONTINENTS LOGISTICS SOLUTIONS PRIVATE LIMITED
                     </span>
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 font-bold border border-slate-300">
                       IATA 14-3-9821

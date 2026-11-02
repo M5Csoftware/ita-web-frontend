@@ -21,7 +21,34 @@ import { IATA_AIRLINES } from "@/lib/iata-data";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
+/* ---------- Fetch helper (outside component so it is stable) ---------- */
+async function apiFetch<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const message =
+      (data && (data.message || data.error)) ||
+      `Request failed with status ${res.status}`;
+    throw new Error(message);
+  }
+
+  return data as T;
+}
+
 interface AwbStockViewProps {
+  // Kept for compatibility with the parent. The DB is now the source of
+  // truth, so this prop is no longer used for display.
   stock?: AwbStockItem[];
   onAddStockSeries?: (
     airlinePrefix: string,
@@ -32,7 +59,6 @@ interface AwbStockViewProps {
 }
 
 export const AwbStockView: React.FC<AwbStockViewProps> = ({
-  stock: externalStock,
   onAddStockSeries,
   onVoidAwb,
 }) => {
@@ -53,36 +79,11 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
   const [isVoiding, setIsVoiding] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const stock = externalStock ?? localStock;
-
-  /* ---------- Inline fetch helper ---------- */
-  const apiFetch = async <T,>(
-    path: string,
-    options: RequestInit = {},
-  ): Promise<T> => {
-    const res = await fetch(`${API_BASE}${path}`, {
-      headers: {
-        "Content-Type": "application/json",
-        ...(options.headers || {}),
-      },
-      ...options,
-    });
-
-    const data = await res.json().catch(() => ({}));
-
-    if (!res.ok) {
-      const message =
-        (data && (data.message || data.error)) ||
-        `Request failed with status ${res.status}`;
-      throw new Error(message);
-    }
-
-    return data as T;
-  };
+  // DB is the single source of truth (fixes empty ledger after refresh)
+  const stock = localStock;
 
   /* ---------- Load stock from API ---------- */
   const loadStock = useCallback(async () => {
-    if (externalStock) return;
     setIsLoading(true);
     try {
       const data = await apiFetch<{
@@ -96,7 +97,7 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [externalStock]);
+  }, []);
 
   useEffect(() => {
     loadStock();
@@ -140,6 +141,7 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
         }),
       });
 
+      // Re-fetch from DB so the ledger always matches what is saved
       await loadStock();
 
       setSuccessMsg(

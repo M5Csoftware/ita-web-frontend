@@ -3,46 +3,86 @@
 :root {
   --background: #f8fafc;
   --foreground: #0f172a;
-  --brand-primary: #2C5EAD;
-  --brand-secondary: #1591DC;
+  --brand-primary: #2c5ead;
+  --brand-secondary: #1591dc;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-brand-primary: #2C5EAD;
-  --color-brand-secondary: #1591DC;
-  --font-sans: var(--font-lato), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-heading: var(--font-poppins), -apple-system, BlinkMacSystemFont, sans-serif;
+  --color-brand-primary: #2c5ead;
+  --color-brand-secondary: #1591dc;
+  --font-sans:
+    var(--font-lato), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    sans-serif;
+  --font-heading:
+    var(--font-poppins), -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-lato), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family:
+    var(--font-lato),
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
   letter-spacing: 0.01em;
 }
 
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   font-family: var(--font-poppins), sans-serif;
   letter-spacing: -0.015em;
 }
 
+/* =========================================================
+   PRINT STYLES
+   Modes controlled via <body data-print-mode="...">
+     "invoice"  -> Only prints .invoice-print-target
+     "mawb"     -> Only prints #mawb-page-1 / #mawb-page-2
+     "manifest" -> Only prints .manifest-print-target
+   ========================================================= */
 @media print {
-  body * {
+  @page {
+    size: A4;
+    margin: 0;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    overflow: visible !important;
+  }
+
+  /* ---------- MODE: INVOICE ---------- */
+  body[data-print-mode="invoice"] * {
     visibility: hidden !important;
   }
 
-  .invoice-print-target[data-print-active="true"],
-  .invoice-print-target[data-print-active="true"] * {
+  body[data-print-mode="invoice"]
+    .invoice-print-target[data-print-active="true"],
+  body[data-print-mode="invoice"]
+    .invoice-print-target[data-print-active="true"]
+    * {
     visibility: visible !important;
   }
 
-  .invoice-print-target:not([data-print-active="true"]) {
+  body[data-print-mode="invoice"]
+    .invoice-print-target:not([data-print-active="true"]) {
     display: none !important;
   }
 
-  .invoice-print-target[data-print-active="true"] {
+  body[data-print-mode="invoice"]
+    .invoice-print-target[data-print-active="true"] {
     position: absolute !important;
     inset: 0 !important;
     width: 100% !important;
@@ -51,10 +91,87 @@ h1, h2, h3, h4, h5, h6 {
     box-shadow: none !important;
   }
 
-  .invoice-print-target button,
-  .invoice-print-target input,
-  .invoice-print-target select,
-  .invoice-print-target textarea {
+  body[data-print-mode="invoice"] .invoice-print-target button,
+  body[data-print-mode="invoice"] .invoice-print-target input,
+  body[data-print-mode="invoice"] .invoice-print-target select,
+  body[data-print-mode="invoice"] .invoice-print-target textarea {
+    display: none !important;
+  }
+
+  /* ---------- MODE: MAWB ---------- */
+  body[data-print-mode="mawb"] * {
+    visibility: hidden !important;
+  }
+
+  body[data-print-mode="mawb"] #mawb-page-1,
+  body[data-print-mode="mawb"] #mawb-page-1 *,
+  body[data-print-mode="mawb"] #mawb-page-2,
+  body[data-print-mode="mawb"] #mawb-page-2 * {
+    visibility: visible !important;
+  }
+
+  /* Position relative prevents pages from stacking on top of each other */
+  body[data-print-mode="mawb"] #mawb-page-1,
+  body[data-print-mode="mawb"] #mawb-page-2 {
+    position: relative !important;
+    width: 210mm !important;
+    height: 297mm !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    background: #fff !important;
+    box-sizing: border-box !important;
+  }
+
+  body[data-print-mode="mawb"] #mawb-page-1 {
+    padding: 7mm 8mm 6mm 8mm !important;
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+
+  body[data-print-mode="mawb"] #mawb-page-2 {
+    padding: 12mm 12mm 10mm 12mm !important;
+    page-break-before: always !important;
+    break-before: page !important;
+  }
+
+  body[data-print-mode="mawb"] .mawb-scale-wrapper {
+    transform: none !important;
+    gap: 0 !important;
+    display: block !important;
+  }
+
+  body[data-print-mode="mawb"] .print\:hidden {
+    display: none !important;
+  }
+
+  /* ---------- MODE: MANIFEST ---------- */
+  body[data-print-mode="manifest"] * {
+    visibility: hidden !important;
+  }
+
+  /* Show only the print wrapper in the manifest modal */
+  body[data-print-mode="manifest"] .manifest-print-target,
+  body[data-print-mode="manifest"] .manifest-print-target * {
+    visibility: visible !important;
+  }
+
+  /* Ensure the wrapper sits cleanly on the page */
+  body[data-print-mode="manifest"] .manifest-print-target {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 297mm !important;
+    margin: 0 !important;
+    padding: 10mm !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+    background: white !important;
+  }
+
+  /* Hide the modal header/buttons */
+  body[data-print-mode="manifest"] .print\:hidden {
     display: none !important;
   }
 }
