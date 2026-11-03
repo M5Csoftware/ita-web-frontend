@@ -27,8 +27,6 @@ export const InterfaceCard: React.FC<InterfaceCardProps> = ({
   onViewLogs,
 }) => {
   const [copied, setCopied] = useState(false);
-  const [pinging, setPinging] = useState(false);
-
   const handleCopyEndpoint = (e: React.MouseEvent) => {
     e.stopPropagation();
     navigator.clipboard.writeText(item.endpointUrl);
@@ -36,26 +34,19 @@ export const InterfaceCard: React.FC<InterfaceCardProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleQuickPing = async (e: React.MouseEvent) => {
+  const handleQuickPing = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setPinging(true);
-    try {
-      await fetch(`/api/interfaces/${item.id}/test`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ping: true }),
-      });
-      onTest(item);
-    } catch {
-      // Fallback
-      onTest(item);
-    } finally {
-      setPinging(false);
-    }
+    onTest(item);
   };
 
   const getStatusBadge = (status: InterfaceItem['status']) => {
     switch (status) {
+      case 'unknown':
+        return (
+          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">
+            Not verified
+          </span>
+        );
       case 'healthy':
         return (
           <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -192,7 +183,7 @@ export const InterfaceCard: React.FC<InterfaceCardProps> = ({
             onClick={handleQuickPing}
             className="flex items-center gap-1.5 px-3.5 py-2 bg-[#2C5EAD]/10 hover:bg-[#2C5EAD]/20 text-[#2C5EAD] border border-[#2C5EAD]/25 rounded-xl text-xs font-bold transition-all"
           >
-            <Play className={`w-3.5 h-3.5 ${pinging ? 'animate-spin' : ''}`} />
+            <Play className="w-3.5 h-3.5" />
             <span>Test / Ping</span>
           </button>
 

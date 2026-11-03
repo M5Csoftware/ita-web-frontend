@@ -44,25 +44,25 @@ export async function POST(request: Request) {
 
     const newInterface: InterfaceItem = {
       id: `int-${Date.now().toString(36)}`,
-      name: body.name || 'Untitled Interface',
+      name: body.name || '',
       description: body.description || '',
-      sourceSystem: body.sourceSystem || 'Unknown Source',
-      targetSystem: body.targetSystem || 'Unknown Target',
+      sourceSystem: body.sourceSystem || '',
+      targetSystem: body.targetSystem || '',
       type: body.type || 'REST_API',
       direction: body.direction || 'inbound',
-      status: 'healthy',
+      status: 'unknown',
       environment: body.environment || 'production',
-      endpointUrl: body.endpointUrl || 'https://api.example.com',
+      endpointUrl: body.endpointUrl || '',
       authType: body.authType || 'None',
-      uptimePercent: 100,
-      averageLatencyMs: 45,
+      uptimePercent: 0,
+      averageLatencyMs: 0,
       requestsPerMin: 0,
       lastSyncAt: 'Never',
       syncInterval: body.syncInterval || 'Real-time',
       retryAttempts: body.retryAttempts ? Number(body.retryAttempts) : 3,
       timeoutSeconds: body.timeoutSeconds ? Number(body.timeoutSeconds) : 30,
       alertOnFailure: Boolean(body.alertOnFailure),
-      tags: Array.isArray(body.tags) ? body.tags : ['Integration'],
+      tags: Array.isArray(body.tags) ? body.tags : [],
     };
 
     setInterfaces([newInterface, ...current]);
@@ -71,4 +71,3 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Failed to create interface: ' + String(error) }, { status: 400 });
   }
 }
-

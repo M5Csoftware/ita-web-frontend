@@ -27,8 +27,8 @@ export const SandboxTester: React.FC<SandboxTesterProps> = ({ interfaces }) => {
   const [selectedInterfaceId, setSelectedInterfaceId] = useState(interfaces[0]?.id || '');
   const [method, setMethod] = useState<'GET' | 'POST' | 'PUT' | 'DELETE'>('POST');
   const [customEndpoint, setCustomEndpoint] = useState(interfaces[0]?.endpointUrl || '');
-  const [requestHeaders] = useState('{\n  "Content-Type": "application/json",\n  "X-ITA-Environment": "production"\n}');
-  const [requestPayload, setRequestPayload] = useState('{\n  "action": "QUERY_INTERFACE_STATUS",\n  "testRun": true,\n  "clientVersion": "2.4.0"\n}');
+  const [requestHeaders] = useState('{\n  "Content-Type": "application/json"\n}');
+  const [requestPayload, setRequestPayload] = useState('');
   const [loading, setLoading] = useState(false);
   const [response, setResponse] = useState<SandboxResponse | null>(null);
   const [copied, setCopied] = useState(false);
@@ -47,40 +47,22 @@ export const SandboxTester: React.FC<SandboxTesterProps> = ({ interfaces }) => {
 
     const start = Date.now();
     try {
-      if (selectedInterfaceId) {
-        const res = await fetch(`/api/interfaces/${selectedInterfaceId}/test`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ body: requestPayload, headers: requestHeaders }),
-        });
-        const data = await res.json();
-        setResponse({
-          status: data.statusCode || res.status,
-          statusText: data.statusText || 'OK',
-          timeMs: data.latencyMs || (Date.now() - start),
-          body: data.response || data,
-          headers: {
-            'content-type': 'application/json',
-            'server': 'Next.js Turbopack ITA-Engine',
-            'x-response-time': `${Date.now() - start}ms`,
-          },
-        });
-      } else {
-        // Fallback test
-        setResponse({
-          status: 200,
-          statusText: 'OK',
-          timeMs: Date.now() - start + 24,
-          body: {
-            success: true,
-            message: 'Endpoint ping executed successfully',
-            endpoint: customEndpoint,
-          },
-          headers: {
-            'content-type': 'application/json',
-          },
-        });
-      }
+      const res = await fetch(`/api/interfaces/${selectedInterfaceId}/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: requestPayload, headers: requestHeaders }),
+      });
+      const data = await res.json();
+      setResponse({
+        status: res.status,
+        statusText: data.statusText || res.statusText,
+        timeMs: data.latencyMs || (Date.now() - start),
+        body: data.response ?? data,
+        headers: {
+          'content-type': 'application/json',
+          'x-response-time': `${Date.now() - start}ms`,
+        },
+      });
     } catch (err) {
       setResponse({
         status: 500,
@@ -111,7 +93,7 @@ export const SandboxTester: React.FC<SandboxTesterProps> = ({ interfaces }) => {
           </div>
           <div>
             <h3 className="text-base font-bold font-heading text-slate-900">Interactive API & Interface Sandbox</h3>
-            <p className="text-xs sm:text-sm text-slate-500 font-medium">Dispatch live test queries, simulate integrations, and inspect protocol payloads</p>
+            <p className="text-xs sm:text-sm text-slate-500 font-medium">Configure interface requests and inspect backend test responses</p>
           </div>
         </div>
       </div>
@@ -159,7 +141,7 @@ export const SandboxTester: React.FC<SandboxTesterProps> = ({ interfaces }) => {
               />
               <button
                 onClick={handleExecute}
-                disabled={loading}
+                disabled={loading || !selectedInterfaceId}
                 className="px-5 bg-gradient-to-r from-[#2C5EAD] to-[#1591DC] hover:opacity-95 text-white text-sm font-bold flex items-center gap-2 transition-all shadow-sm disabled:opacity-50"
               >
                 {loading ? <RotateCcw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}

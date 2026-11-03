@@ -111,7 +111,7 @@ export const MasterDataView: React.FC<MasterDataViewProps> = ({
       id: `prt-${Date.now()}`,
       type: newPartner.type || 'SHIPPER',
       name: newPartner.name.trim(),
-      accountNumber: newPartner.accountNumber?.trim() || `ACC-${Math.floor(1000 + Math.random() * 9000)}`,
+      accountNumber: newPartner.accountNumber?.trim() || undefined,
       address: newPartner.address.trim(),
       city: newPartner.city?.trim() || '',
       country: newPartner.country?.trim() || '',
@@ -864,7 +864,7 @@ export const MasterDataView: React.FC<MasterDataViewProps> = ({
                 <input
                   type="text"
                   required
-                  placeholder="e.g. AeroTech Precision Parts Ltd"
+                  placeholder="Enter company name"
                   value={newPartner.name || ''}
                   onChange={(e) => setNewPartner({ ...newPartner, name: e.target.value })}
                   className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
@@ -957,4 +957,3 @@ export const MasterDataView: React.FC<MasterDataViewProps> = ({
     </div>
   );
 };
-

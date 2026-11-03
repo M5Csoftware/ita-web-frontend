@@ -93,7 +93,7 @@ Available → Allotted → Issued → Manifested → Departed → Arrived → De
 - **IATA CASS Reconciliation**: Airline Cargo Accounts Settlement System (CASS) status tracking (`RECONCILED`, `PENDING_MATCH`, `DISCREPANCY`).
 
 ### 8. IATA Master Data & Accredited Agent Profile
-- **Accredited Issuing Agent Profile**: Configurable agent legal name, IATA 7-digit numeric code (`14-3-9821/0014`), CASS participant address, registered office, PAN, and GSTIN.
+- **Accredited Issuing Agent Profile**: Configure the agent legal name, IATA numeric code, CASS participant address, registered office, PAN, and GSTIN.
 - **Carrier Registry**: Airline 3-digit prefix database (e.g. `098`, `176`, `020`, `157`, `618`, `006`).
 - **Airport / Station Directory**: 3-letter IATA airport codes (e.g. `DEL`, `BOM`, `DXB`, `FRA`, `LHR`, `JFK`, `SIN`).
 - **Shippers & Consignees**: Directory with contact information, addresses, and tax identifiers.
@@ -101,8 +101,7 @@ Available → Allotted → Issued → Manifested → Departed → Arrived → De
 
 ### 9. Role-Based Access Control (RBAC), Settings & Login
 - **Station Login Screen**:
-  - Direct authentication with default credentials: `admin` / `admin`.
-  - One-click quick login chips for instant testing (`Admin`, `Operations`, `Accounts`).
+  - Login screen with no seeded demo accounts or default credentials.
   - Session persistence via `localStorage` with secure logout action.
 - **Sidebar Tab Permissions Matrix**:
   - Interactive grid configuring which sidebar tabs each role can view and access.
@@ -138,12 +137,14 @@ ita-web-frontend/
 │   │       ├── Navbar.tsx                    # Station hub badge, e-AWB pulse, global search
 │   │       └── Sidebar.tsx                   # IATA operational navigation rail & role switcher
 │   ├── lib/
-│   │   └── iata-data.ts                      # Resolution 600b seed data & Cargo-IMP messages
+│   │   └── iata-data.ts                      # IATA airline and airport reference catalogs
 │   └── types/
 │       └── iata.ts                           # Mod-7 check digit, volumetric weight & IATA types
 ├── package.json
 └── README.md
 ```
+
+Business records, agent details, and user accounts start empty; only the airline and airport reference catalogs are preloaded.
 
 ---
 

@@ -32,10 +32,10 @@ export const AwbConsolidationView: React.FC<AwbConsolidationViewProps> = ({
   const [hawbNumber, setHawbNumber] = useState('');
   const [hawbShipper, setHawbShipper] = useState('');
   const [hawbConsignee, setHawbConsignee] = useState('');
-  const [hawbPieces, setHawbPieces] = useState(1);
-  const [hawbGrossWeight, setHawbGrossWeight] = useState(50);
-  const [hawbChargeableWeight, setHawbChargeableWeight] = useState(50);
-  const [hawbCommodity, setHawbCommodity] = useState('Consolidated General Merchandise');
+  const [hawbPieces, setHawbPieces] = useState(0);
+  const [hawbGrossWeight, setHawbGrossWeight] = useState(0);
+  const [hawbChargeableWeight, setHawbChargeableWeight] = useState(0);
+  const [hawbCommodity, setHawbCommodity] = useState('');
 
   const handleOpenPrint = (mawb: MawbItem) => {
     setSelectedMawb(mawb);
@@ -351,7 +351,7 @@ export const AwbConsolidationView: React.FC<AwbConsolidationViewProps> = ({
                   </div>
                   <div className="border-r border-slate-300 pr-2">
                     <span className="text-[10px] text-slate-500 uppercase block font-bold">Flight / Date</span>
-                    <strong className="text-sm font-bold">{selectedMawb.flightNumber || 'AI-121'} / {selectedMawb.flightDate || '30-OCT'}</strong>
+                    <strong className="text-sm font-bold">{selectedMawb.flightNumber || '—'} / {selectedMawb.flightDate || '—'}</strong>
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-500 uppercase block font-bold">Currency</span>

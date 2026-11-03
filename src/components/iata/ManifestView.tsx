@@ -25,11 +25,11 @@ export const ManifestView: React.FC<ManifestViewProps> = ({
   onFinalizeManifest,
 }) => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [selectedFlightNumber, setSelectedFlightNumber] = useState('AI-121');
-  const [selectedAirline, setSelectedAirline] = useState('Air India');
-  const [flightDate, setFlightDate] = useState('2026-10-31');
-  const [origin, setOrigin] = useState('DEL');
-  const [destination, setDestination] = useState('FRA');
+  const [selectedFlightNumber, setSelectedFlightNumber] = useState('');
+  const [selectedAirline, setSelectedAirline] = useState('');
+  const [flightDate, setFlightDate] = useState('');
+  const [origin, setOrigin] = useState('');
+  const [destination, setDestination] = useState('');
   const [selectedMawbNumbers, setSelectedMawbNumbers] = useState<string[]>([]);
   const [viewingManifest, setViewingManifest] = useState<FlightManifestItem | null>(null);
 
@@ -225,7 +225,7 @@ export const ManifestView: React.FC<ManifestViewProps> = ({
                     required
                     value={selectedFlightNumber}
                     onChange={(e) => setSelectedFlightNumber(e.target.value)}
-                    placeholder="e.g. AI-121 or EK-501"
+                    placeholder="Enter flight number"
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-mono font-bold"
                   />
                 </div>
