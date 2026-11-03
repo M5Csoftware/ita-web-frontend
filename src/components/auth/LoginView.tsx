@@ -15,9 +15,10 @@ import {
   Building2,
   CheckCircle2,
 } from 'lucide-react';
+import { API_BASE } from '@/lib/api';
 import { UserAccount, ALL_TAB_IDS } from '@/types/iata';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+
 
 interface LoginViewProps {
   users: UserAccount[];
