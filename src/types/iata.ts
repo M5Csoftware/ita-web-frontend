@@ -1,20 +1,27 @@
 // IATA Standard Types and Resolution 600b specifications
 
-export type AwbStatus = 
-  | 'AVAILABLE' 
-  | 'ALLOTTED' 
-  | 'ISSUED' 
-  | 'MANIFESTED' 
-  | 'DEPARTED' 
-  | 'ARRIVED' 
-  | 'DELIVERED' 
-  | 'VOID';
+export type AwbStatus =
+  | "AVAILABLE"
+  | "ALLOTTED"
+  | "ISSUED"
+  | "MANIFESTED"
+  | "DEPARTED"
+  | "ARRIVED"
+  | "DELIVERED"
+  | "VOID";
 
-export type SpecialHandlingCode = 'GEN' | 'PER' | 'DGR' | 'VAL' | 'COL' | 'AVI' | 'HUM';
+export type SpecialHandlingCode =
+  | "GEN"
+  | "PER"
+  | "DGR"
+  | "VAL"
+  | "COL"
+  | "AVI"
+  | "HUM";
 
 export interface Airline {
   prefix: string; // 3-digit IATA code e.g. "098", "176", "020"
-  code: string;   // 2-letter code e.g. "AI", "EK", "LH"
+  code: string; // 2-letter code e.g. "AI", "EK", "LH"
   name: string;
   country: string;
 }
@@ -28,7 +35,7 @@ export interface Airport {
 
 export interface ShipperConsignee {
   id: string;
-  type: 'SHIPPER' | 'CONSIGNEE' | 'BOTH';
+  type: "SHIPPER" | "CONSIGNEE" | "BOTH";
   name: string;
   accountNumber?: string;
   address: string;
@@ -43,7 +50,7 @@ export interface ShipperConsignee {
 export interface IssuingAgentProfile {
   name: string;
   iataNumericCode: string; // e.g. "14-3-9821/0014"
-  cassAddress: string;     // e.g. "CAS-IND-8820"
+  cassAddress: string; // e.g. "CAS-IND-8820"
   headOfficeAddress: string;
   city: string;
   country: string;
@@ -51,36 +58,39 @@ export interface IssuingAgentProfile {
   email: string;
   gstNumber: string;
   panNumber: string;
+  logoUrl?: string;
+  bankDetails?: string;
+  terms?: string;
 }
 
-export type NavPageId = 
-  | 'dashboard' 
-  | 'docket' 
-  | 'stock' 
-  | 'bookings' 
-  | 'mawb' 
-  | 'manifest' 
-  | 'eawb' 
-  | 'billing' 
-  | 'invoice-generation'
-  | 'master' 
-  | 'settings';
+export type NavPageId =
+  | "dashboard"
+  | "docket"
+  | "stock"
+  | "bookings"
+  | "mawb"
+  | "manifest"
+  | "eawb"
+  | "billing"
+  | "invoice-generation"
+  | "master"
+  | "settings";
 
 export const ALL_TAB_IDS: NavPageId[] = [
-  'dashboard', 
-  'docket', 
-  'stock', 
-  'bookings', 
-  'mawb', 
-  'manifest', 
-  'eawb', 
-  'billing', 
-  'invoice-generation',
-  'master', 
-  'settings'
+  "dashboard",
+  "docket",
+  "stock",
+  "bookings",
+  "mawb",
+  "manifest",
+  "eawb",
+  "billing",
+  "invoice-generation",
+  "master",
+  "settings",
 ];
 
-export type UserRole = 'admin' | 'user';
+export type UserRole = "admin" | "user";
 
 export interface UserAccount {
   id: string;
@@ -97,21 +107,35 @@ export interface UserAccount {
 
 export function getUserEffectiveTabs(user: UserAccount | null): NavPageId[] {
   if (!user) return ALL_TAB_IDS;
-  const role = (user.role || '').toLowerCase();
-  const uname = (user.username || '').toLowerCase();
+  const role = (user.role || "").toLowerCase();
+  const uname = (user.username || "").toLowerCase();
   // Admin strictly has complete access to all modules under any circumstances
-  if (role === 'admin' || role === 'administrator' || uname === 'admin') {
+  if (role === "admin" || role === "administrator" || uname === "admin") {
     return ALL_TAB_IDS;
   }
-  if (user.permissions && Array.isArray(user.permissions) && user.permissions.length > 0) {
+  if (
+    user.permissions &&
+    Array.isArray(user.permissions) &&
+    user.permissions.length > 0
+  ) {
     return user.permissions;
   }
-  return ['dashboard'];
+  return ["dashboard"];
 }
 
-export type DocketServiceMode = 'EXPRESS_AIR' | 'STANDARD_AIR' | 'PRIORITY_AOG' | 'COLD_CHAIN';
-export type DocketPaymentMode = 'PREPAID' | 'TO_PAY' | 'ON_ACCOUNT';
-export type DocketStatus = 'BOOKED' | 'AWB_ASSIGNED' | 'MANIFESTED' | 'IN_TRANSIT' | 'DELIVERED' | 'CANCELLED';
+export type DocketServiceMode =
+  | "EXPRESS_AIR"
+  | "STANDARD_AIR"
+  | "PRIORITY_AOG"
+  | "COLD_CHAIN";
+export type DocketPaymentMode = "PREPAID" | "TO_PAY" | "ON_ACCOUNT";
+export type DocketStatus =
+  | "BOOKED"
+  | "AWB_ASSIGNED"
+  | "MANIFESTED"
+  | "IN_TRANSIT"
+  | "DELIVERED"
+  | "CANCELLED";
 
 export interface DocketItem {
   id: string;
@@ -157,7 +181,7 @@ export interface AwbStockItem {
   airlinePrefix: string;
   airlineNumber: string; // 8-digit serial with check digit
   fullAwbNumber: string; // e.g. "098-72418935"
-  status: 'AVAILABLE' | 'ALLOTTED' | 'ISSUED' | 'VOID';
+  status: "AVAILABLE" | "ALLOTTED" | "ISSUED" | "VOID";
   allocatedTo?: string;
   issuedAt?: string;
   voidReason?: string;
@@ -185,9 +209,17 @@ export interface BookingItem {
   natureOfGoods: string;
   handlingCode: SpecialHandlingCode;
   createdAt: string;
-  status: 'PENDING_AWB' | 'AWB_ISSUED' | 'CANCELLED';
+  status: "PENDING_AWB" | "AWB_ISSUED" | "CANCELLED";
 }
 
+/**
+ * House Air Waybill.
+ *
+ * NEW: optional per-house shipper/consignee address + tax fields so that a
+ * consolidated HAWB can have its own address block distinct from the Master.
+ * These are populated by the "Edit HAWB" form in AwbConsolidationView and
+ * used to fill the printed MAWB "Nature & Quantity" block + HAWB sub-table.
+ */
 export interface HawbItem {
   id: string;
   hawbNumber: string;
@@ -199,10 +231,32 @@ export interface HawbItem {
   pieces: number;
   grossWeightKg: number;
   chargeableWeightKg: number;
+  handlingInfo?: string;
   natureOfGoods: string;
   status: AwbStatus;
+
+  // Optional house-specific address/tax fields
+  shipperAddress?: string;
+  shipperPhone?: string;
+  shipperGst?: string;
+  consigneeAddress?: string;
+  consigneePhone?: string;
+  consigneeGst?: string;
 }
 
+/**
+ * Master Air Waybill.
+ *
+ * NEW (optional) fields consumed by the printable MawbSheet:
+ *  - carrierName            -> printed next to "AIR WAYBILL" (defaults to "EGYPT AIR")
+ *  - issuingAgentAccountNo  -> printed in the "Account No." box below IATA Code
+ *  - copiesNotice           -> overrides the default copies-validity text
+ *  - contractNotice         -> overrides the default conditions-of-contract paragraph
+ *  - accountingInfo         -> overrides the "FREIGHT PREPAID" box
+ *
+ * All four are optional; buildMawbData() falls back to sensible IATA defaults
+ * when they are absent, so existing DB rows keep working without migration.
+ */
 export interface MawbItem {
   id: string;
   mawbNumber: string; // "098-72418935"
@@ -220,7 +274,7 @@ export interface MawbItem {
   pieces: number;
   grossWeightKg: number;
   chargeableWeightKg: number;
-  rateClass: 'M' | 'N' | 'Q' | 'C'; // Minimum, Normal, Quantity slab
+  rateClass: "M" | "N" | "Q" | "C"; // Minimum, Normal, Quantity slab
   ratePerKg: number;
   freightAmount: number;
   fuelSurcharge: number;
@@ -234,6 +288,13 @@ export interface MawbItem {
   status: AwbStatus;
   issuedAt: string;
   fwbSent: boolean;
+
+  // Optional, used by the printed IATA AWB (MawbSheet)
+  carrierName?: string;
+  issuingAgentAccountNo?: string;
+  copiesNotice?: string;
+  contractNotice?: string;
+  accountingInfo?: string;
 }
 
 export interface FlightManifestItem {
@@ -249,18 +310,18 @@ export interface FlightManifestItem {
   totalHawbs: number;
   totalPieces: number;
   totalGrossWeightKg: number;
-  status: 'DRAFT' | 'FINALIZED' | 'DEPARTED';
+  status: "DRAFT" | "FINALIZED" | "DEPARTED";
   finalizedAt?: string;
 }
 
 export interface EawbMessage {
   id: string;
-  messageType: 'FWB' | 'FHL' | 'FFM' | 'FSU';
+  messageType: "FWB" | "FHL" | "FFM" | "FSU";
   awbNumber: string;
   airline: string;
   flightNumber?: string;
-  direction: 'OUTBOUND' | 'INBOUND';
-  status: 'ACKNOWLEDGED' | 'SENT' | 'FAILED' | 'RETRYING';
+  direction: "OUTBOUND" | "INBOUND";
+  status: "ACKNOWLEDGED" | "SENT" | "FAILED" | "RETRYING";
   timestamp: string;
   rawCargoImp: string;
 }
@@ -278,11 +339,11 @@ export interface CassInvoice {
   subtotal: number;
   gstAmount: number; // 18% GST
   totalAmount: number;
-  cassReconciliationStatus: 'RECONCILED' | 'PENDING_MATCH' | 'DISCREPANCY';
-  paymentStatus: 'PAID' | 'UNPAID' | 'PARTIAL';
+  cassReconciliationStatus: "RECONCILED" | "PENDING_MATCH" | "DISCREPANCY";
+  paymentStatus: "PAID" | "UNPAID" | "PARTIAL";
   invoiceStatus?: InvoiceStatus;
   shipmentDetails?: InvoiceShipmentReference[];
-  billToParty?: 'SHIPPER' | 'CONSIGNEE' | 'AGENT';
+  billToParty?: "SHIPPER" | "CONSIGNEE" | "AGENT";
   customerAddress?: string;
   customerGstId?: string;
   sacCode?: string;
@@ -290,7 +351,7 @@ export interface CassInvoice {
   chargeLines?: InvoiceChargeLine[];
   discountAmount?: number;
   gstRate?: number;
-  gstType?: 'CGST_SGST' | 'IGST' | 'ZERO_RATED' | 'UNREGISTERED';
+  gstType?: "CGST_SGST" | "IGST" | "ZERO_RATED" | "UNREGISTERED";
   cgstAmount?: number;
   sgstAmount?: number;
   igstAmount?: number;
@@ -300,10 +361,20 @@ export interface CassInvoice {
   corrections?: InvoiceCorrection[];
   cancellationReason?: string;
   auditLog?: InvoiceAuditEntry[];
+  companyName?: string;
+  companyLogoUrl?: string;
+  companyBankDetails?: string;
+  companyTerms?: string;
 }
 
-export type InvoiceStatus = 'DRAFT' | 'APPROVED' | 'SENT' | 'PARTIALLY_PAID' | 'PAID' | 'CANCELLED';
-export type InvoiceBillingTrigger = 'ISSUED' | 'MANIFESTED' | 'DEPARTED';
+export type InvoiceStatus =
+  | "DRAFT"
+  | "APPROVED"
+  | "SENT"
+  | "PARTIALLY_PAID"
+  | "PAID"
+  | "CANCELLED";
+export type InvoiceBillingTrigger = "ISSUED" | "MANIFESTED" | "DEPARTED";
 
 export interface InvoiceShipmentReference {
   reference: string;
@@ -331,14 +402,14 @@ export interface InvoicePayment {
   id: string;
   date: string;
   amount: number;
-  mode: 'CASH' | 'CHEQUE' | 'BANK_TRANSFER' | 'UPI';
+  mode: "CASH" | "CHEQUE" | "BANK_TRANSFER" | "UPI";
   tdsAmount: number;
   reference?: string;
 }
 
 export interface InvoiceCorrection {
   id: string;
-  type: 'CREDIT_NOTE' | 'DEBIT_NOTE';
+  type: "CREDIT_NOTE" | "DEBIT_NOTE";
   number: string;
   amount: number;
   reason: string;
@@ -352,27 +423,27 @@ export interface InvoiceAuditEntry {
   details?: string;
 }
 
-export type InvoiceDraftData = Omit<CassInvoice, 'id' | 'invoiceNumber'>;
+export type InvoiceDraftData = Omit<CassInvoice, "id" | "invoiceNumber">;
 
 export type InvoiceDraftUpdate = Partial<
   Pick<
     CassInvoice,
-    | 'chargeLines'
-    | 'discountAmount'
-    | 'gstRate'
-    | 'gstType'
-    | 'subtotal'
-    | 'gstAmount'
-    | 'cgstAmount'
-    | 'sgstAmount'
-    | 'igstAmount'
-    | 'totalAmount'
-    | 'freightCharges'
-    | 'fuelSurcharge'
-    | 'securitySurcharge'
-    | 'handlingCharges'
-    | 'remarks'
-    | 'dueDate'
+    | "chargeLines"
+    | "discountAmount"
+    | "gstRate"
+    | "gstType"
+    | "subtotal"
+    | "gstAmount"
+    | "cgstAmount"
+    | "sgstAmount"
+    | "igstAmount"
+    | "totalAmount"
+    | "freightCharges"
+    | "fuelSurcharge"
+    | "securitySurcharge"
+    | "handlingCharges"
+    | "remarks"
+    | "dueDate"
   >
 >;
 
@@ -380,15 +451,21 @@ export function calculateInvoiceAmounts(
   lines: InvoiceChargeLine[],
   discountAmount: number,
   gstRate: number,
-  gstType: NonNullable<CassInvoice['gstType']>,
+  gstType: NonNullable<CassInvoice["gstType"]>,
 ) {
-  const subtotal = lines.reduce((sum, line) => sum + Math.max(0, Number(line.amount) || 0), 0);
+  const subtotal = lines.reduce(
+    (sum, line) => sum + Math.max(0, Number(line.amount) || 0),
+    0,
+  );
   const taxableAmount = Math.max(0, subtotal - Math.max(0, discountAmount));
-  const effectiveRate = gstType === 'ZERO_RATED' ? 0 : Math.max(0, gstRate);
-  const gstAmount = Number((taxableAmount * effectiveRate / 100).toFixed(2));
-  const cgstAmount = gstType === 'CGST_SGST' ? Number((gstAmount / 2).toFixed(2)) : 0;
-  const sgstAmount = gstType === 'CGST_SGST' ? Number((gstAmount - cgstAmount).toFixed(2)) : 0;
-  const igstAmount = gstType === 'IGST' || gstType === 'UNREGISTERED' ? gstAmount : 0;
+  const effectiveRate = gstType === "ZERO_RATED" ? 0 : Math.max(0, gstRate);
+  const gstAmount = Number(((taxableAmount * effectiveRate) / 100).toFixed(2));
+  const cgstAmount =
+    gstType === "CGST_SGST" ? Number((gstAmount / 2).toFixed(2)) : 0;
+  const sgstAmount =
+    gstType === "CGST_SGST" ? Number((gstAmount - cgstAmount).toFixed(2)) : 0;
+  const igstAmount =
+    gstType === "IGST" || gstType === "UNREGISTERED" ? gstAmount : 0;
   return {
     subtotal,
     gstAmount,
@@ -400,7 +477,9 @@ export function calculateInvoiceAmounts(
 }
 
 // IATA Resolution 600b Modulo-7 check digit validator
-export function calculateIataMod7CheckDigit(sevenDigits: string | number): number {
+export function calculateIataMod7CheckDigit(
+  sevenDigits: string | number,
+): number {
   const num = parseInt(String(sevenDigits).slice(0, 7), 10);
   if (isNaN(num)) return 0;
   return num % 7;
@@ -414,10 +493,12 @@ export function validateIataAwbNumber(eightDigitSerial: string): boolean {
 }
 
 // IATA Volumetric calculation formula: (L x W x H in cm) / 6000
-export function calculateVolumetricWeight(dimensions: DimensionEntry[]): number {
+export function calculateVolumetricWeight(
+  dimensions: DimensionEntry[],
+): number {
   const totalCm3 = dimensions.reduce(
     (acc, dim) => acc + dim.lengthCm * dim.widthCm * dim.heightCm * dim.pieces,
-    0
+    0,
   );
   return parseFloat((totalCm3 / 6000).toFixed(2));
 }
