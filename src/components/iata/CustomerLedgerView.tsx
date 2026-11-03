@@ -5,7 +5,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Loader2, AlertCircle, RefreshCw } from "lucide-react";
 import { CassInvoice } from "@/types/iata";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+import { API_BASE } from "@/lib/api";
 
 const fmt = (n: number) =>
   new Intl.NumberFormat("en-IN", {

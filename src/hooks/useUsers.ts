@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { UserAccount } from '@/types/iata';
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? '';
+import { API_BASE as API } from '@/lib/api';
 
 export function useUsers() {
   const [users, setUsers] = useState<UserAccount[]>([]);

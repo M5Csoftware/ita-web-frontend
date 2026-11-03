@@ -1217,16 +1217,11 @@ ${hawbLines}`;
           )}
 
           {effectiveActivePage === 'billing' && allowedTabs.includes('billing') && (
-            <BillingCassView
-              invoices={invoices}
-              onMarkInvoicePaid={handleMarkInvoicePaid}
-              onReconcileCass={handleReconcileCass}
-            />
+            <BillingCassView />
           )}
 
           {effectiveActivePage === 'invoice-generation' && allowedTabs.includes('invoice-generation') && (
             <InvoiceGenerationView
-              invoices={invoices}
               mawbs={mawbs}
               partners={partners}
               agentProfile={agentProfile}
@@ -1237,13 +1232,6 @@ ${hawbLines}`;
               defaultGstRate={invoiceGstRate}
               sacCode={invoiceSacCode}
               billingTrigger={invoiceBillingTrigger}
-              onCreateDraft={handleCreateInvoiceDraft}
-              onUpdateDraft={handleUpdateInvoiceDraft}
-              onApproveInvoice={handleApproveInvoice}
-              onSendInvoice={handleSendInvoice}
-              onRegisterPayment={handleRegisterInvoicePayment}
-              onCancelInvoice={handleCancelInvoice}
-              onAddCorrection={handleAddInvoiceCorrection}
               onBillingTriggerChange={handleChangeInvoiceBillingTrigger}
               onGstRateChange={handleChangeInvoiceGstRate}
               onSacCodeChange={handleChangeInvoiceSacCode}

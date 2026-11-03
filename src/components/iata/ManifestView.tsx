@@ -9,11 +9,16 @@ import {
   X,
   Loader2,
   AlertCircle,
+  Download,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
+import { ManifestSheet } from "./ManifestSheet";
+import { downloadManifestPdf, printManifestPdf } from "@/lib/manifest-pdf-export";
 import { FlightManifestItem, MawbItem } from "@/types/iata";
 import { IATA_AIRLINES, IATA_AIRPORTS } from "@/lib/iata-data";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+import { API_BASE } from "@/lib/api";
 
 async function apiFetch<T>(
   path: string,
@@ -68,10 +73,41 @@ export const ManifestView: React.FC<ManifestViewProps> = () => {
   const [viewingManifest, setViewingManifest] =
     useState<FlightManifestItem | null>(null);
 
-  // New state for the Print Preview Modal
-  const [printManifest, setPrintManifest] = useState<FlightManifestItem | null>(
-    null,
-  );
+  // State for Print / PDF Export Modal
+  const [printManifest, setPrintManifest] = useState<FlightManifestItem | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [modalZoom, setModalZoom] = useState<number>(1);
+
+  const handlePrintPdf = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    try {
+      await printManifestPdf();
+    } catch (err) {
+      console.error("Print Manifest PDF failed, falling back to window.print():", err);
+      const prev = document.body.dataset.printMode;
+      document.body.dataset.printMode = "manifest";
+      window.print();
+      if (prev) document.body.dataset.printMode = prev;
+      else delete document.body.dataset.printMode;
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!printManifest || isExporting) return;
+    setIsExporting(true);
+    try {
+      const cleanNum = (printManifest.manifestNumber || printManifest.mawbs?.[0] || "Manifest").replace(/[^a-zA-Z0-9_-]/g, "_");
+      const fileName = `Manifest_${cleanNum}.pdf`;
+      await downloadManifestPdf(fileName);
+    } catch (err) {
+      console.error("Download Manifest PDF error:", err);
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   /* ---------- Load MAWBs (with HAWBs) + manifests from DB ---------- */
   const loadData = useCallback(async () => {
@@ -312,6 +348,19 @@ export const ManifestView: React.FC<ManifestViewProps> = () => {
                         className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors"
                       >
                         Inspect
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPrintManifest(mnf);
+                          setModalZoom(1);
+                        }}
+                        className="px-3 py-1.5 bg-[#2C5EAD]/10 hover:bg-[#2C5EAD]/20 text-[#2C5EAD] border border-[#2C5EAD]/30 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                        title="Generate and print / download manifest PDF"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        <span>Print / PDF</span>
                       </button>
 
                       {mnf.status === "DRAFT" && (
@@ -580,11 +629,14 @@ export const ManifestView: React.FC<ManifestViewProps> = () => {
 
             <div className="mt-6 pt-4 flex justify-between items-center border-t border-slate-200">
               <button
-                onClick={() => setPrintManifest(viewingManifest)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-bold flex items-center gap-1.5"
+                onClick={() => {
+                  setPrintManifest(viewingManifest);
+                  setModalZoom(1);
+                }}
+                className="px-4 py-2 bg-[#2C5EAD] hover:bg-[#204580] text-white rounded-xl font-bold flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
               >
                 <Printer className="w-4 h-4" />
-                <span>Print Cargo Manifest</span>
+                <span>Generate Manifest PDF</span>
               </button>
               <button
                 onClick={() => setViewingManifest(null)}
@@ -599,246 +651,108 @@ export const ManifestView: React.FC<ManifestViewProps> = () => {
 
       {/* =========================================================
           PRINT MANIFEST MODAL
-          Matches the PDF layout: 077- 59066906
+          Matches the exact PDF layout of Manifest_077-59066906.pdf
       ========================================================= */}
       {printManifest && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white w-full max-w-[210mm] h-[92vh] flex flex-col shadow-2xl rounded-xl overflow-hidden print:shadow-none print:rounded-none">
-            {/* Modal Header (Hidden in Print) */}
-            <div className="p-4 border-b flex justify-between items-center bg-slate-50 print:hidden">
-              <div className="font-bold text-slate-800 font-heading">
-                Manifest Print Preview
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-1.5 sm:p-2.5 bg-slate-900/65 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white border border-slate-200 rounded-2xl w-[98vw] max-w-[1700px] h-[96vh] max-h-[96vh] flex flex-col shadow-2xl text-slate-900 print:m-0 print:max-h-none print:max-w-none print:w-full print:rounded-none print:border-0 print:shadow-none overflow-hidden">
+            {/* Modal Header */}
+            <div className="px-5 py-3.5 border-b border-slate-200 flex flex-wrap xl:flex-nowrap items-center justify-between gap-3 bg-white sticky top-0 z-20 print:hidden shrink-0 shadow-xs">
+              <div className="flex items-center gap-3 shrink-0">
+                <div className="w-9 h-9 rounded-xl bg-[#2C5EAD]/10 text-[#2C5EAD] flex items-center justify-center shrink-0">
+                  <Plane className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold font-heading text-slate-900">
+                      Consolidation Flight Manifest (FFM)
+                    </h3>
+                    <span className="hidden sm:inline-block rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] font-semibold text-[#2C5EAD] border border-blue-500/20">
+                      A4 Landscape
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 font-mono">
+                    Manifest: <span className="font-semibold text-slate-700">{printManifest.manifestNumber}</span> · AWB: <span className="font-semibold text-slate-700">{printManifest.mawbs?.[0] || "N/A"}</span>
+                  </p>
+                </div>
               </div>
-              <div className="flex gap-2">
+
+              {/* Action Toolbar with generous spacing */}
+              <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
+                {/* Zoom Controls */}
+                <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setModalZoom((z) => Math.max(0.6, parseFloat((z - 0.1).toFixed(2))))}
+                    className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-white rounded-md transition-all cursor-pointer"
+                    title="Zoom out"
+                  >
+                    <ZoomOut className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalZoom(1)}
+                    className="px-2 py-1 text-[11px] font-mono font-semibold text-slate-700 hover:text-slate-900 cursor-pointer"
+                    title="Reset zoom to 100%"
+                  >
+                    {Math.round(modalZoom * 100)}%
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalZoom((z) => Math.min(1.5, parseFloat((z + 0.1).toFixed(2))))}
+                    className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-white rounded-md transition-all cursor-pointer"
+                    title="Zoom in"
+                  >
+                    <ZoomIn className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Print Button */}
                 <button
-                  onClick={() => {
-                    // Triggers the global @media print
-                    document.body.setAttribute("data-print-mode", "manifest");
-                    window.print();
-                    document.body.removeAttribute("data-print-mode");
-                  }}
-                  className="px-4 py-2 bg-[#2C5EAD] hover:bg-[#234c8d] text-white font-bold rounded-lg text-sm flex items-center gap-2"
+                  type="button"
+                  onClick={handlePrintPdf}
+                  disabled={isExporting}
+                  className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-50 rounded-lg text-xs font-bold flex items-center gap-1.5 border border-slate-300 transition-colors shadow-xs shrink-0 cursor-pointer"
                 >
-                  <Printer className="w-4 h-4" />
-                  Print / PDF
+                  <Printer className="w-3.5 h-3.5 text-slate-600" />
+                  <span>Print / Save PDF</span>
                 </button>
+
+                {/* Download PDF Button */}
                 <button
+                  type="button"
+                  onClick={handleDownloadPdf}
+                  disabled={isExporting}
+                  className="px-3.5 py-1.5 bg-[#2C5EAD] hover:bg-[#234c8d] disabled:opacity-50 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors shrink-0 cursor-pointer"
+                >
+                  {isExporting ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5" />
+                  )}
+                  <span>{isExporting ? "Generating..." : "Download PDF"}</span>
+                </button>
+
+                {/* Close Button */}
+                <button
+                  type="button"
                   onClick={() => setPrintManifest(null)}
-                  className="p-2 text-slate-500 hover:bg-slate-200 rounded-lg"
+                  className="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors shrink-0 cursor-pointer"
+                  title="Close modal"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
 
-            {/* Printable Area */}
-            <div className="manifest-print-target flex-1 overflow-y-auto p-8 print:p-0 print:overflow-visible bg-white text-black">
-              <div className="max-w-full">
-                {/* Header Info */}
-                <div className="text-xl font-bold mb-6 tracking-wide">
-                  {printManifest.mawbs?.[0] || "MANIFEST"}-{" "}
-                  {printManifest.flightDate.replace(/-/g, "").slice(2)}
-                </div>
-
-                <div className="grid grid-cols-[80px_1fr] gap-y-3 gap-x-4 text-[11px] mb-4">
-                  {/* Carrier */}
-                  <div className="font-bold text-slate-800">Carrier</div>
-                  <div className="font-bold text-slate-800 uppercase">
-                    {printManifest.airline}
-                  </div>
-
-                  {/* Shipper */}
-                  <div className="font-bold text-slate-800">Shipper</div>
-                  <div className="text-slate-800 leading-[1.3]">
-                    {mawbs.find((m) => m.mawbNumber === printManifest.mawbs[0])
-                      ?.shipperName || "N/A"}
-                    <br />
-                    {mawbs.find((m) => m.mawbNumber === printManifest.mawbs[0])
-                      ?.shipperAddress || ""}
-                  </div>
-
-                  {/* Consignee */}
-                  <div className="font-bold text-slate-800">Consignee</div>
-                  <div className="text-slate-800 leading-[1.3]">
-                    {mawbs.find((m) => m.mawbNumber === printManifest.mawbs[0])
-                      ?.consigneeName || "N/A"}
-                    <br />
-                    {mawbs.find((m) => m.mawbNumber === printManifest.mawbs[0])
-                      ?.consigneeAddress || ""}
-                  </div>
-                </div>
-
-                {/* Flight Info Bar */}
-                <div className="flex flex-wrap gap-6 text-[10px] font-bold border-y border-black py-2 mb-6">
-                  <div>
-                    Date{" "}
-                    <span className="font-normal ml-1">
-                      {printManifest.flightDate}
-                    </span>
-                  </div>
-                  <div>
-                    Reference{" "}
-                    <span className="font-normal ml-1">
-                      {printManifest.manifestNumber}
-                    </span>
-                  </div>
-                  <div>
-                    Flight{" "}
-                    <span className="font-normal ml-1">
-                      {printManifest.flightNumber}
-                    </span>
-                  </div>
-                  <div>
-                    MS <span className="font-normal ml-1">AD</span>
-                  </div>
-                  <div>
-                    Origin{" "}
-                    <span className="font-normal ml-1">
-                      {printManifest.origin}
-                    </span>
-                  </div>
-                  <div>
-                    Destination{" "}
-                    <span className="font-normal ml-1">
-                      {printManifest.destination}
-                    </span>
-                  </div>
-                  <div>
-                    Pieces{" "}
-                    <span className="font-normal ml-1">
-                      {printManifest.totalPieces}
-                    </span>
-                  </div>
-                  <div>
-                    Weight{" "}
-                    <span className="font-normal ml-1">
-                      {printManifest.totalGrossWeightKg}K
-                    </span>
-                  </div>
-                  <div>
-                    HAWBs{" "}
-                    <span className="font-normal ml-1">
-                      {printManifest.totalHawbs}
-                    </span>
-                  </div>
-                  <div>
-                    Pages <span className="font-normal ml-1">1</span>
-                  </div>
-                </div>
-
-                {/* HAWB Table */}
-                <table className="w-full text-[10px] text-left border-collapse">
-                  <thead>
-                    <tr className="border-b-2 border-black font-bold">
-                      <th className="py-2 w-12">HAWB</th>
-                      <th className="py-2 w-20 text-right">Pieces</th>
-                      <th className="py-2 w-24 text-right">Weight</th>
-                      <th className="py-2 w-24 text-center">Orig/Dest</th>
-                      <th className="py-2 w-20 text-center">PPD/COLL</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {printManifest.mawbs.map((mawbNum) => {
-                      const mawb = mawbs.find((m) => m.mawbNumber === mawbNum);
-                      if (!mawb) return null;
-
-                      // If the MAWB has HAWBs, print each one
-                      if (mawb.hawbs && mawb.hawbs.length > 0) {
-                        return mawb.hawbs.map((hawb) => (
-                          <React.Fragment key={hawb.hawbNumber}>
-                            <tr className="border-b border-slate-300">
-                              <td className="py-2 align-top font-bold">
-                                {hawb.hawbNumber.replace(/^HAWB-/, "")}
-                              </td>
-                              <td className="py-2 align-top text-right">
-                                {hawb.pieces}
-                              </td>
-                              <td className="py-2 align-top text-right">
-                                {hawb.grossWeightKg} K
-                              </td>
-                              <td className="py-2 align-top text-center">
-                                {mawb.origin}/{mawb.destination}
-                              </td>
-                              <td className="py-2 align-top text-center">
-                                COLL
-                              </td>
-                            </tr>
-                            <tr className="border-b border-slate-300">
-                              <td className="py-2 align-top font-bold">
-                                Shipper
-                              </td>
-                              <td colSpan={4} className="py-2 align-top">
-                                {hawb.shipperName} <br />
-                                {hawb.shipperAddress || mawb.shipperAddress}
-                              </td>
-                            </tr>
-                            <tr className="border-b border-black">
-                              <td className="py-2 align-top font-bold">
-                                Consignee
-                              </td>
-                              <td colSpan={4} className="py-2 align-top">
-                                {hawb.consigneeName} <br />
-                                {hawb.consigneeAddress || mawb.consigneeAddress}
-                              </td>
-                            </tr>
-                          </React.Fragment>
-                        ));
-                      }
-
-                      // If no HAWBs, just print the MAWB as a line
-                      return (
-                        <React.Fragment key={mawb.mawbNumber}>
-                          <tr className="border-b border-slate-300">
-                            <td className="py-2 align-top font-bold">
-                              {mawb.mawbNumber}
-                            </td>
-                            <td className="py-2 align-top text-right">
-                              {mawb.pieces}
-                            </td>
-                            <td className="py-2 align-top text-right">
-                              {mawb.grossWeightKg} K
-                            </td>
-                            <td className="py-2 align-top text-center">
-                              {mawb.origin}/{mawb.destination}
-                            </td>
-                            <td className="py-2 align-top text-center">COLL</td>
-                          </tr>
-                          <tr className="border-b border-slate-300">
-                            <td className="py-2 align-top font-bold">
-                              Shipper
-                            </td>
-                            <td colSpan={4} className="py-2 align-top">
-                              {mawb.shipperName} <br />
-                              {mawb.shipperAddress}
-                            </td>
-                          </tr>
-                          <tr className="border-b border-black">
-                            <td className="py-2 align-top font-bold">
-                              Consignee
-                            </td>
-                            <td colSpan={4} className="py-2 align-top">
-                              {mawb.consigneeName} <br />
-                              {mawb.consigneeAddress}
-                            </td>
-                          </tr>
-                        </React.Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-
-                {/* Total */}
-                <div className="flex justify-between font-bold text-[11px] mt-4 pt-4 border-t border-black">
-                  <div className="w-12">Total</div>
-                  <div className="flex-1 text-right pr-16">
-                    {printManifest.totalPieces}
-                  </div>
-                  <div className="w-24 text-right">
-                    {printManifest.totalGrossWeightKg}K
-                  </div>
-                  <div className="w-24 text-center"></div>
-                  <div className="w-20"></div>
-                </div>
+            {/* Scrollable Preview Canvas with sleek desk contrast */}
+            <div className="flex-1 overflow-y-auto overflow-x-auto p-6 sm:p-10 bg-slate-200/60 print:bg-white print:p-0">
+              <div className="flex justify-center min-w-max mx-auto py-4">
+                <ManifestSheet
+                  manifest={printManifest}
+                  mawbs={mawbs}
+                  scale={modalZoom}
+                />
               </div>
             </div>
           </div>

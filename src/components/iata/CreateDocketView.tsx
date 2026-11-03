@@ -30,7 +30,7 @@ import {
   Ticket,
 } from "lucide-react";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+import { API_BASE } from "@/lib/api";
 
 /* ---------- Fetch helper (outside component so it is stable) ---------- */
 async function apiFetch<T>(

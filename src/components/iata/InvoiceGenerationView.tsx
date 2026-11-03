@@ -38,7 +38,7 @@ import {
 } from "@/types/iata";
 import { calculateRateEngineCharges } from "@/lib/rate-engine";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+import { API_BASE } from "@/lib/api";
 
 async function apiFetch<T>(
   path: string,

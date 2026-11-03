@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import {
   Plus,
   Printer,
+  Download,
   AlertTriangle,
   CheckCircle2,
   X,
@@ -15,12 +16,15 @@ import {
   ArrowLeft,
   Building2,
   Plane,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { MawbItem, HawbItem } from "@/types/iata";
 import { MawbSheet } from "./MawbSheet";
 import { MawbData } from "@/types/mawb";
+import { downloadMawbPdf, printMawbPdf } from "@/lib/mawb-pdf-export";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+import { API_BASE } from "@/lib/api";
 
 async function apiFetch<T>(
   path: string,
@@ -242,6 +246,9 @@ export const AwbConsolidationView: React.FC<AwbConsolidationViewProps> = () => {
 
   const [selectedMawb, setSelectedMawb] = useState<MawbItem | null>(null);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [printActivePage, setPrintActivePage] = useState<"both" | "face" | "conditions">("both");
+  const [modalZoom, setModalZoom] = useState<number>(1);
   const [isAddHawbModalOpen, setIsAddHawbModalOpen] = useState(false);
   const [printCopyType, setPrintCopyType] = useState<
     "ORIGINAL_1" | "ORIGINAL_2" | "ORIGINAL_3" | "EXTRA"
@@ -294,17 +301,37 @@ export const AwbConsolidationView: React.FC<AwbConsolidationViewProps> = () => {
     setIsPrintModalOpen(true);
   };
 
-  /** Trigger print scoped to only the MawbSheet pages via body[data-print-mode="mawb"]. */
-  const printMawb = () => {
-    const prev = document.body.dataset.printMode;
-    document.body.dataset.printMode = "mawb";
-    requestAnimationFrame(() => {
+  const handlePrintPdf = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    try {
+      await printMawbPdf(printActivePage);
+    } catch (err) {
+      console.error("Print PDF failed, falling back to window.print():", err);
+      const prev = document.body.dataset.printMode;
+      document.body.dataset.printMode = "mawb";
       window.print();
-      setTimeout(() => {
-        if (prev) document.body.dataset.printMode = prev;
-        else delete document.body.dataset.printMode;
-      }, 500);
-    });
+      if (prev) document.body.dataset.printMode = prev;
+      else delete document.body.dataset.printMode;
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!selectedMawb || isExporting) return;
+    setIsExporting(true);
+    try {
+      const cleanPrefix = (selectedMawb.mawbNumber || "077").split("-")[0].replace(/[^a-zA-Z0-9]/g, "") || "077";
+      const cleanSerial = (selectedMawb.mawbNumber || "AWB").replace(/[^a-zA-Z0-9]/g, "_");
+      const pageSuffix = printActivePage === "both" ? "" : `_${printActivePage.toUpperCase()}`;
+      const fileName = `MAWB_${cleanPrefix}-${cleanSerial}${pageSuffix}.pdf`;
+      await downloadMawbPdf(fileName, printActivePage);
+    } catch (err) {
+      console.error("Download PDF error:", err);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const handleOpenAddHawb = (mawb: MawbItem) => {
@@ -1148,22 +1175,100 @@ export const AwbConsolidationView: React.FC<AwbConsolidationViewProps> = () => {
 
       {/* Print modal — renders the AUTHENTIC MawbSheet */}
       {isPrintModalOpen && selectedMawb && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-[230mm] max-h-[92vh] overflow-y-auto shadow-2xl text-slate-900 print:m-0 print:max-h-none print:max-w-none print:w-full print:rounded-none print:border-0 print:shadow-none">
-            <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50 sticky top-0 z-10 print:hidden">
-              <div className="flex items-center gap-3">
-                <Printer className="w-5 h-5 text-[#2C5EAD]" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-1.5 sm:p-2.5 bg-slate-900/65 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white border border-slate-200 rounded-2xl w-[98vw] max-w-[1700px] h-[96vh] max-h-[96vh] flex flex-col shadow-2xl text-slate-900 print:m-0 print:max-h-none print:max-w-none print:w-full print:rounded-none print:border-0 print:shadow-none overflow-hidden">
+            {/* Modal Header */}
+            <div className="px-5 py-3.5 border-b border-slate-200 flex flex-wrap xl:flex-nowrap items-center justify-between gap-3 bg-white sticky top-0 z-20 print:hidden shrink-0 shadow-xs">
+              <div className="flex items-center gap-3 shrink-0">
+                <div className="w-9 h-9 rounded-xl bg-[#2C5EAD]/10 text-[#2C5EAD] flex items-center justify-center shrink-0">
+                  <Plane className="w-5 h-5" />
+                </div>
                 <div>
-                  <h3 className="text-base font-bold font-heading">
-                    IATA Standard Air Waybill (Res 600b Format)
-                  </h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold font-heading text-slate-900">
+                      IATA Standard Air Waybill (Res 600b Format)
+                    </h3>
+                    <span className="hidden sm:inline-block rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] font-semibold text-[#2C5EAD] border border-blue-500/20">
+                      MAWB Preview
+                    </span>
+                  </div>
                   <p className="text-xs text-slate-500 font-mono">
-                    AWB: {selectedMawb.mawbNumber}
+                    AWB: <span className="font-semibold text-slate-700">{selectedMawb.mawbNumber}</span>
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              {/* Action Toolbar with generous spacing */}
+              <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
+                {/* Zoom Controls */}
+                <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setModalZoom((z) => Math.max(0.6, parseFloat((z - 0.1).toFixed(2))))}
+                    className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-white rounded-md transition-all cursor-pointer"
+                    title="Zoom out"
+                  >
+                    <ZoomOut className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalZoom(1)}
+                    className="px-2 py-1 text-[11px] font-mono font-semibold text-slate-700 hover:text-slate-900 cursor-pointer"
+                    title="Reset zoom to 100%"
+                  >
+                    {Math.round(modalZoom * 100)}%
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalZoom((z) => Math.min(1.5, parseFloat((z + 0.1).toFixed(2))))}
+                    className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-white rounded-md transition-all cursor-pointer"
+                    title="Zoom in"
+                  >
+                    <ZoomIn className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Page Selection Tabs */}
+                <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setPrintActivePage("both")}
+                    className={`px-2.5 py-1.5 rounded-md font-semibold transition-all cursor-pointer ${
+                      printActivePage === "both"
+                        ? "bg-white text-slate-900 shadow-xs"
+                        : "text-slate-500 hover:text-slate-800"
+                    }`}
+                    title="View Both Page 1 (Face) and Page 2 (Terms)"
+                  >
+                    Both Pages
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPrintActivePage("face")}
+                    className={`px-2.5 py-1.5 rounded-md font-semibold transition-all cursor-pointer ${
+                      printActivePage === "face"
+                        ? "bg-white text-slate-900 shadow-xs"
+                        : "text-slate-500 hover:text-slate-800"
+                    }`}
+                    title="Page 1 (Air Waybill Face only)"
+                  >
+                    Page 1 Face
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPrintActivePage("conditions")}
+                    className={`px-2.5 py-1.5 rounded-md font-semibold transition-all cursor-pointer ${
+                      printActivePage === "conditions"
+                        ? "bg-white text-slate-900 shadow-xs"
+                        : "text-slate-500 hover:text-slate-800"
+                    }`}
+                    title="Page 2 (Conditions of Contract only)"
+                  >
+                    Page 2 Terms
+                  </button>
+                </div>
+
+                {/* Copy Designation Dropdown */}
                 <select
                   value={printCopyType}
                   onChange={(e) =>
@@ -1175,47 +1280,72 @@ export const AwbConsolidationView: React.FC<AwbConsolidationViewProps> = () => {
                         | "EXTRA",
                     )
                   }
-                  className="px-3 py-1.5 text-xs font-bold font-heading bg-white border border-slate-300 rounded-lg text-slate-800"
+                  className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-300 rounded-lg text-slate-800 shadow-xs focus:ring-2 focus:ring-[#2C5EAD]/20 focus:border-[#2C5EAD] shrink-0"
                 >
                   <option value="ORIGINAL_1">
-                    Original 1 (For Issuing Carrier - Green)
+                    Original 1 (Carrier - Green)
                   </option>
                   <option value="ORIGINAL_2">
-                    Original 2 (For Consignee - Pink)
+                    Original 2 (Consignee - Pink)
                   </option>
                   <option value="ORIGINAL_3">
-                    Original 3 (For Shipper - Blue)
+                    Original 3 (Shipper - Blue)
                   </option>
                   <option value="EXTRA">
-                    Copy 4 (Delivery Receipt / Extra)
+                    Copy 4 (Delivery Receipt)
                   </option>
                 </select>
 
+                {/* Print Button */}
                 <button
-                  onClick={printMawb}
-                  className="px-3.5 py-1.5 bg-[#2C5EAD] hover:bg-[#234c8d] text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm"
+                  type="button"
+                  onClick={handlePrintPdf}
+                  disabled={isExporting}
+                  className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-50 rounded-lg text-xs font-bold flex items-center gap-1.5 border border-slate-300 transition-colors shadow-xs shrink-0 cursor-pointer"
                 >
-                  <Printer className="w-3.5 h-3.5" />
-                  <span>Print / Download PDF</span>
+                  <Printer className="w-3.5 h-3.5 text-slate-600" />
+                  <span>Print / Save PDF</span>
                 </button>
 
+                {/* Download PDF Button */}
                 <button
+                  type="button"
+                  onClick={handleDownloadPdf}
+                  disabled={isExporting}
+                  className="px-3.5 py-1.5 bg-[#2C5EAD] hover:bg-[#234c8d] disabled:opacity-50 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors shrink-0 cursor-pointer"
+                >
+                  {isExporting ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5" />
+                  )}
+                  <span>{isExporting ? "Generating..." : "Download PDF"}</span>
+                </button>
+
+                {/* Close Button */}
+                <button
+                  type="button"
                   onClick={() => setIsPrintModalOpen(false)}
-                  className="p-1.5 text-slate-400 hover:text-slate-800 rounded-lg"
+                  className="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors shrink-0 cursor-pointer"
+                  title="Close modal"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
 
-            <div className="p-4 print:p-0 bg-slate-100/60 print:bg-white">
-              <MawbSheet
-                data={buildMawbData(
-                  selectedMawb,
-                  copyDesignationFor(printCopyType),
-                )}
-                activePage="both"
-              />
+            {/* Scrollable Preview Area with generous padding */}
+            <div className="flex-1 overflow-y-auto overflow-x-auto p-6 sm:p-10 bg-slate-200/60 print:bg-white print:p-0">
+              <div className="flex justify-center min-w-max mx-auto py-4">
+                <MawbSheet
+                  data={buildMawbData(
+                    selectedMawb,
+                    copyDesignationFor(printCopyType),
+                  )}
+                  activePage={printActivePage}
+                  scale={modalZoom}
+                />
+              </div>
             </div>
           </div>
         </div>
