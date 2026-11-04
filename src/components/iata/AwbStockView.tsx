@@ -11,17 +11,18 @@ import {
   Check,
   AlertCircle,
   Loader2,
+  Plus,
 } from "lucide-react";
 import {
   AwbStockItem,
   calculateIataMod7CheckDigit,
   validateIataAwbNumber,
+  Airline,
 } from "@/types/iata";
 import { IATA_AIRLINES } from "@/lib/iata-data";
-
 import { API_BASE } from "@/lib/api";
 
-/* ---------- Fetch helper (outside component so it is stable) ---------- */
+/* ---------- Fetch helper ---------- */
 async function apiFetch<T>(
   path: string,
   options: RequestInit = {},
@@ -47,8 +48,6 @@ async function apiFetch<T>(
 }
 
 interface AwbStockViewProps {
-  // Kept for compatibility with the parent. The DB is now the source of
-  // truth, so this prop is no longer used for display.
   stock?: AwbStockItem[];
   onAddStockSeries?: (
     airlinePrefix: string,
@@ -56,16 +55,21 @@ interface AwbStockViewProps {
     toSerial7: number,
   ) => void;
   onVoidAwb?: (id: string, reason: string) => void;
+  /** ✅ Navigate to docket with prefilled MAWB */
+  onNavigate?: (page: string, context?: Record<string, any>) => void;
 }
 
 export const AwbStockView: React.FC<AwbStockViewProps> = ({
   onAddStockSeries,
   onVoidAwb,
+  onNavigate,
 }) => {
   const [localStock, setLocalStock] = useState<AwbStockItem[]>([]);
-  const [selectedAirline, setSelectedAirline] = useState(
-    IATA_AIRLINES[0]?.prefix || "",
-  );
+
+  // ✅ Dynamic airlines state
+  const [airlines, setAirlines] = useState<Airline[]>([]);
+  const [selectedAirline, setSelectedAirline] = useState("");
+
   const [serialNumber, setSerialNumber] = useState("");
   const [testSerial, setTestSerial] = useState("");
   const [testResult, setTestResult] = useState<boolean | null>(null);
@@ -79,12 +83,12 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
   const [isVoiding, setIsVoiding] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  // DB is the single source of truth (fixes empty ledger after refresh)
   const stock = localStock;
 
-  /* ---------- Load stock from API ---------- */
+  /* ---------- Load stock ---------- */
   const loadStock = useCallback(async () => {
     setIsLoading(true);
+    setErrorMsg("");
     try {
       const data = await apiFetch<{
         success: boolean;
@@ -99,19 +103,46 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
     }
   }, []);
 
+  /* ---------- Load airlines ---------- */
+  const loadAirlines = useCallback(async () => {
+    try {
+      const data = await apiFetch<{ airlines: Airline[] }>(
+        "/api/master/airlines",
+      );
+      if (data.airlines && data.airlines.length > 0) {
+        setAirlines(data.airlines);
+        setSelectedAirline(data.airlines[0].prefix);
+      } else {
+        setAirlines(IATA_AIRLINES);
+        setSelectedAirline(IATA_AIRLINES[0]?.prefix || "");
+      }
+    } catch (err) {
+      console.error(
+        "Failed to load airlines, falling back to static list",
+        err,
+      );
+      setAirlines(IATA_AIRLINES);
+      setSelectedAirline(IATA_AIRLINES[0]?.prefix || "");
+    }
+  }, []);
+
   useEffect(() => {
     loadStock();
-  }, [loadStock]);
+    loadAirlines();
+  }, [loadStock, loadAirlines]);
 
+  /* ---------- Mod-7 tester ---------- */
   const handleTestMod7 = () => {
     if (testSerial.length !== 8) {
       setTestResult(false);
       return;
     }
-    setTestResult(validateIataAwbNumber(testSerial));
+    // ✅ validateIataAwbNumber now returns an object — read .isValid
+    const result = validateIataAwbNumber(testSerial);
+    setTestResult(result.isValid);
   };
 
-  /* ---------- Save stock series ---------- */
+  /* ---------- Generate / ingest stock ---------- */
   const handleGenerateStock = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg("");
@@ -121,7 +152,13 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
       setErrorMsg("Please enter a valid 8-digit numerical serial number.");
       return;
     }
+    if (!selectedAirline) {
+      setErrorMsg("Please select an airline.");
+      return;
+    }
 
+    // ✅ Resolve the airline so we can send code + name to be persisted
+    const airline = airlines.find((a) => a.prefix === selectedAirline);
     const fromNum = parseInt(serialNumber.slice(0, 7), 10);
 
     setIsSaving(true);
@@ -136,17 +173,22 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
         method: "POST",
         body: JSON.stringify({
           airlinePrefix: selectedAirline,
+          airlineCode: airline?.code ?? "",
+          airlineName: airline?.name ?? "",
           fromSerial7: fromNum,
           toSerial7: fromNum,
         }),
       });
 
-      // Re-fetch from DB so the ledger always matches what is saved
       await loadStock();
+
+      const airlineLabel = airline
+        ? `${airline.code} · ${airline.name}`
+        : selectedAirline;
 
       setSuccessMsg(
         result.addedCount > 0
-          ? `Successfully saved ${result.addedCount} AWB number(s) for airline ${selectedAirline}.`
+          ? `Successfully saved ${result.addedCount} AWB number(s) for ${airlineLabel}.`
           : `That AWB number already exists (${result.alreadyExistedCount} duplicate).`,
       );
       setSerialNumber("");
@@ -160,9 +202,13 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
     }
   };
 
-  /* ---------- Void stock ---------- */
+  /* ---------- Void ---------- */
   const handleVoidConfirm = async () => {
     if (!voidingId) return;
+    if (!voidReason.trim()) {
+      setErrorMsg("A void reason is required.");
+      return;
+    }
     setErrorMsg("");
     setIsVoiding(true);
     try {
@@ -170,9 +216,7 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
         `/api/stock/${voidingId}/void`,
         {
           method: "POST",
-          body: JSON.stringify({
-            reason: voidReason.trim() || "No reason provided",
-          }),
+          body: JSON.stringify({ reason: voidReason.trim() }),
         },
       );
 
@@ -184,7 +228,7 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
       );
       setTimeout(() => setSuccessMsg(""), 5000);
 
-      onVoidAwb?.(voidingId, voidReason);
+      onVoidAwb?.(voidingId, voidReason.trim());
     } catch (err: any) {
       setErrorMsg(err.message || "Failed to void AWB.");
     } finally {
@@ -192,9 +236,16 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
     }
   };
 
+  /* ---------- Filter ---------- */
   const filteredStock = stock.filter((s) => {
+    const q = search.trim().toLowerCase();
     const matchesSearch =
-      s.fullAwbNumber.includes(search) || s.airlinePrefix.includes(search);
+      q === "" ||
+      s.fullAwbNumber.toLowerCase().includes(q) ||
+      s.airlinePrefix.toLowerCase().includes(q) ||
+      s.airlineNumber.toLowerCase().includes(q) ||
+      (s.airlineCode || "").toLowerCase().includes(q) ||
+      (s.airlineName || "").toLowerCase().includes(q);
     const matchesStatus = filterStatus === "ALL" || s.status === filterStatus;
     return matchesSearch && matchesStatus;
   });
@@ -265,11 +316,14 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
                   onChange={(e) => setSelectedAirline(e.target.value)}
                   className="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-300 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#2C5EAD]/20 focus:border-[#2C5EAD]"
                 >
-                  {IATA_AIRLINES.map((a) => (
+                  {airlines.map((a) => (
                     <option key={a.prefix} value={a.prefix}>
                       {a.prefix} - {a.name} ({a.code})
                     </option>
                   ))}
+                  {airlines.length === 0 && (
+                    <option value="">Loading airlines...</option>
+                  )}
                 </select>
               </div>
 
@@ -279,6 +333,7 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
                 </label>
                 <input
                   type="text"
+                  inputMode="numeric"
                   maxLength={8}
                   required
                   value={serialNumber}
@@ -325,6 +380,7 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
                 </label>
                 <input
                   type="text"
+                  inputMode="numeric"
                   maxLength={8}
                   value={testSerial}
                   onChange={(e) => {
@@ -356,7 +412,7 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
                     <>
                       <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                       <span>
-                        Valid IATA Check Digit ({testSerial.slice(0, 7)} % 7 ={" "}
+                        Valid IATA check digit ({testSerial.slice(0, 7)} % 7 ={" "}
                         {testSerial.slice(7)})
                       </span>
                     </>
@@ -366,7 +422,7 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
                       <span>
                         Invalid! Expected check digit is{" "}
                         {calculateIataMod7CheckDigit(testSerial.slice(0, 7))},
-                        got {testSerial.slice(7)}.
+                        got {testSerial.slice(7) || "—"}.
                       </span>
                     </>
                   )}
@@ -426,17 +482,19 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
               <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold font-heading text-slate-500 uppercase tracking-wider">
                 <th className="py-3.5 px-6">Full AWB Number</th>
                 <th className="py-3.5 px-6">Airline Prefix</th>
+                <th className="py-3.5 px-6">Airline</th>
                 <th className="py-3.5 px-6">Serial Number</th>
                 <th className="py-3.5 px-6">Status</th>
                 <th className="py-3.5 px-6">Allocation / Note</th>
                 <th className="py-3.5 px-6 text-right">Actions</th>
+                <th className="py-3.5 px-6 text-right">Docket</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {isLoading && (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={8}
                     className="py-8 text-center text-slate-500 text-sm"
                   >
                     <Loader2 className="w-5 h-5 animate-spin inline mr-2" />
@@ -448,7 +506,7 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
               {!isLoading && filteredStock.length === 0 && (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={8}
                     className="py-8 text-center text-slate-400 text-sm italic"
                   >
                     No AWB stock records found.
@@ -466,6 +524,21 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
                   </td>
                   <td className="py-3.5 px-6 font-mono font-semibold text-slate-700">
                     {item.airlinePrefix}
+                  </td>
+                  {/* ✅ NEW: airline code + name column */}
+                  <td className="py-3.5 px-6 text-slate-700">
+                    {item.airlineCode || item.airlineName ? (
+                      <span className="font-semibold">
+                        {item.airlineCode || "—"}{" "}
+                        {item.airlineName && (
+                          <span className="text-slate-500 font-normal">
+                            · {item.airlineName}
+                          </span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="text-slate-400 italic">—</span>
+                    )}
                   </td>
                   <td className="py-3.5 px-6 font-mono text-slate-700">
                     {item.airlineNumber}
@@ -515,6 +588,24 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
                       </span>
                     )}
                   </td>
+                  <td className="py-3.5 px-6 text-right">
+                    {item.status === "AVAILABLE" ? (
+                      <button
+                        onClick={() =>
+                          onNavigate?.("docket", {
+                            prefillMawb: item.fullAwbNumber,
+                          })
+                        }
+                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#2C5EAD] hover:bg-[#234c8d] text-white rounded-lg text-xs font-bold shadow-sm transition-all"
+                        title={`Create docket for AWB ${item.fullAwbNumber}`}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Create Docket</span>
+                      </button>
+                    ) : (
+                      <span className="text-xs text-slate-300 italic">—</span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -539,7 +630,7 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
             </p>
             <div className="mb-4">
               <label className="block text-xs font-bold text-slate-700 mb-1">
-                Reason for Voiding
+                Reason for Voiding <span className="text-rose-500">*</span>
               </label>
               <input
                 type="text"
@@ -563,7 +654,7 @@ export const AwbStockView: React.FC<AwbStockViewProps> = ({
               </button>
               <button
                 type="button"
-                disabled={isVoiding}
+                disabled={isVoiding || !voidReason.trim()}
                 onClick={handleVoidConfirm}
                 className="px-4 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow-sm disabled:opacity-50 inline-flex items-center gap-2"
               >
