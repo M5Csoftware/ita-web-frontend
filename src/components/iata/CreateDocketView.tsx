@@ -58,25 +58,23 @@ async function apiFetch<T>(
 }
 
 interface CreateDocketViewProps {
-  /** Kept for compatibility. Dockets are now loaded from / saved to the DB. */
   dockets?: DocketItem[];
   airports: Airport[];
   partners: ShipperConsignee[];
-  /** Kept for compatibility. AWB stock is now loaded from the DB. */
   awbStock?: AwbStockItem[];
-  /** Kept optional for backward compatibility – count is now derived from stock. */
   availableAwbCount?: number;
-  /** Optional notification hook. The component itself saves to the DB. */
+  /** ✅ AWB number passed from Dashboard "Create Docket" row button */
+  prefillMawb?: string | null;
   onCreateDocket?: (
     docket: Omit<DocketItem, "id" | "createdAt" | "status">,
   ) => void | Promise<void>;
-  /** Optional notification hook. The component itself calls assign-awb. */
   onAssignAwbToDocket?: (docket: DocketItem) => void;
 }
 
 export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
   airports,
   partners,
+  prefillMawb,
 }) => {
   const [activeTab, setActiveTab] = useState<"create" | "registry">("create");
   const [searchQuery, setSearchQuery] = useState("");
@@ -123,8 +121,10 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
   const [handlingCode, setHandlingCode] = useState<SpecialHandlingCode>("GEN");
   const [declaredValue, setDeclaredValue] = useState(0);
   const [ewayBillNumber, setEwayBillNumber] = useState("");
-  const [ratePerKg, setRatePerKg] = useState(0);
-  const [docketFee, setDocketFee] = useState(0);
+
+  // ✅ OPTIONAL freight fields — no longer required
+  const [ratePerKg, setRatePerKg] = useState<number>(0);
+  const [docketFee, setDocketFee] = useState<number>(0);
 
   // Dimensions & Weight
   const [actualWeightKg, setActualWeightKg] = useState(0);
@@ -202,6 +202,17 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
 
   const availableAwbCount = availableAwbs.length;
 
+  // ✅ Prefill MAWB from Dashboard
+  useEffect(() => {
+    if (!prefillMawb) return;
+    const match = availableAwbs.find((a) => a.fullAwbNumber === prefillMawb);
+    if (match) {
+      setSelectedAwb(prefillMawb);
+      setActiveTab("create");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefillMawb, availableAwbs.length]);
+
   // If the chosen AWB is no longer available (e.g. just used), fall back to auto
   const awbToAssign = useMemo(() => {
     const chosen = availableAwbs.find((a) => a.fullAwbNumber === selectedAwb);
@@ -227,12 +238,13 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
   );
   const chargeableWeightKg = Math.max(actualWeightKg, volumetricWeightKg);
 
-  const freightAmount = Math.round(chargeableWeightKg * ratePerKg);
-  const fuelSurcharge = Math.round(freightAmount * 0.11); // 11% fuel surcharge
-  const securitySurcharge = Math.round(freightAmount * 0.04); // 4% security surcharge
+  // ✅ Freight/tax are derived — if ratePerKg is 0, everything stays 0 (optional)
+  const freightAmount = Math.round(chargeableWeightKg * (ratePerKg || 0));
+  const fuelSurcharge = Math.round(freightAmount * 0.11);
+  const securitySurcharge = Math.round(freightAmount * 0.04);
   const subtotal =
-    freightAmount + docketFee + fuelSurcharge + securitySurcharge;
-  const gstAmount = Math.round(subtotal * 0.18); // 18% GST
+    freightAmount + (docketFee || 0) + fuelSurcharge + securitySurcharge;
+  const gstAmount = Math.round(subtotal * 0.18);
   const totalAmount = subtotal + gstAmount;
 
   // Handlers for quick auto-fill from trading partners
@@ -299,17 +311,15 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
   };
 
   /* ---------- Save docket to DB ---------- */
+  /* ---------- Save docket to DB ---------- */
   const handleSubmitDocket = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError("");
     if (!consignorName || !consigneeName) return;
 
-    // Docket sequence based on what is already saved in the DB
-    const sequenceNum = (dockets.length + 101).toString().padStart(4, "0");
-    const generatedDocketNumber = `DKT-${origin}-${destination}-${sequenceNum}`;
-
     const payload: Omit<DocketItem, "id" | "createdAt" | "status"> = {
-      docketNumber: generatedDocketNumber,
+      // ❌ REMOVED: docketNumber: generatedDocketNumber,
+      // The backend will auto-generate `DKT-{ORIGIN}-{DEST}-{SEQ}`
       bookingDate: new Date().toISOString().split("T")[0],
       serviceMode,
       paymentMode,
@@ -333,17 +343,16 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
       handlingCode,
       declaredValue,
       ewayBillNumber: ewayBillNumber.trim() || undefined,
-      ratePerKg,
+      ratePerKg: ratePerKg || 0,
       freightAmount,
-      docketFee,
+      docketFee: docketFee || 0,
       fuelSurcharge,
       securitySurcharge,
       subtotal,
       gstAmount,
       totalAmount,
-      // AWB fixed for this docket (undefined if stock is empty)
       assignedAwb: awbToAssign || undefined,
-    };
+    } as any; // Casting to any because we are omitting docketNumber temporarily
 
     setIsSubmitting(true);
     try {
@@ -352,13 +361,11 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
         body: JSON.stringify(payload),
       });
 
-      // Re-fetch from DB so registry + available AWBs match what is saved
       await Promise.all([loadDockets(), loadStock()]);
       resetForm();
       setActiveTab("registry");
     } catch (err: any) {
       setSubmitError(err?.message || "Failed to save docket.");
-      // Stock may have changed (e.g. AWB taken elsewhere) – refresh it
       loadStock();
     } finally {
       setIsSubmitting(false);
@@ -408,7 +415,6 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
           </p>
         </div>
 
-        {/* View Switcher */}
         <div className="flex bg-slate-100 p-1.5 rounded-xl border border-slate-200 shrink-0">
           <button
             onClick={() => setActiveTab("create")}
@@ -624,7 +630,6 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                 </div>
               )}
 
-              {/* Quick-pick chips */}
               {availableAwbs.length > 0 && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-3">
@@ -859,7 +864,6 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
               </button>
             </div>
 
-            {/* Dimension Entries Table */}
             <div className="space-y-3">
               <div className="hidden md:grid grid-cols-12 gap-3 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                 <span className="col-span-3">Length (cm)</span>
@@ -973,7 +977,6 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
               ))}
             </div>
 
-            {/* Live Weight Slabs & Calculation Summary */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-5 bg-gradient-to-r from-blue-50/60 to-sky-50/60 rounded-2xl border border-blue-200">
               <div>
                 <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
@@ -1027,7 +1030,6 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
               </div>
             </div>
 
-            {/* Commodity, Package Type & E-Way Bill */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 pt-4 border-t border-slate-100">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -1111,34 +1113,41 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
             </div>
           </div>
 
-          {/* Section 4: Freight Tariff & Grand Total Summary */}
+          {/* ============================================================
+              Section 4: Freight Charges — ✅ OPTIONAL
+              ============================================================ */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 sm:p-8 space-y-6">
-            <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
-              <div className="w-10 h-10 rounded-xl bg-[#2C5EAD]/10 text-[#2C5EAD] flex items-center justify-center font-bold">
-                3
-              </div>
-              <div>
-                <h2 className="text-lg font-bold text-slate-900 font-heading">
-                  Freight Charges, GST &amp; Grand Total
-                </h2>
-                <p className="text-xs text-slate-500 font-sans">
-                  Automated statutory calculation with 18% GST and fuel
-                  surcharges.
-                </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-slate-200 text-slate-500 flex items-center justify-center font-bold">
+                  3
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900 font-heading flex items-center gap-2">
+                    Freight Charges, GST &amp; Grand Total
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-semibold uppercase tracking-wider">
+                      Optional
+                    </span>
+                  </h2>
+                  <p className="text-xs text-slate-500 font-sans">
+                    Leave these blank to save the docket without any billing
+                    amounts — freight, GST and totals will be zero.
+                  </p>
+                </div>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Rate per Kg (₹) *
+                  Rate per Kg (₹)
                 </label>
                 <input
                   type="number"
-                  min={1}
-                  required
+                  min={0}
                   value={ratePerKg}
-                  onChange={(e) => setRatePerKg(Number(e.target.value))}
+                  onChange={(e) => setRatePerKg(Number(e.target.value) || 0)}
+                  placeholder="Optional"
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-300 font-mono font-bold text-[#2C5EAD] text-sm"
                 />
               </div>
@@ -1151,7 +1160,8 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                   type="number"
                   min={0}
                   value={docketFee}
-                  onChange={(e) => setDocketFee(Number(e.target.value))}
+                  onChange={(e) => setDocketFee(Number(e.target.value) || 0)}
+                  placeholder="Optional"
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-300 font-mono text-sm"
                 />
               </div>
@@ -1276,7 +1286,6 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
             </div>
           )}
 
-          {/* Dockets Table */}
           <div className="overflow-x-auto rounded-xl border border-slate-200">
             <table className="w-full text-left border-collapse font-sans">
               <thead>
@@ -1417,7 +1426,6 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
       {selectedDocketForPrint && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in overflow-y-auto">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full p-6 sm:p-8 space-y-6 my-8">
-            {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-slate-200 pb-4">
               <div className="flex items-center gap-3">
                 <Printer className="w-6 h-6 text-[#2C5EAD]" />
@@ -1432,7 +1440,6 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
               </div>
 
               <div className="flex items-center gap-3">
-                {/* Copy selector */}
                 <select
                   value={printCopyType}
                   onChange={(e) =>
@@ -1466,9 +1473,7 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
               </div>
             </div>
 
-            {/* Printable Docket Foil Document */}
             <div className="p-8 border-2 border-slate-800 rounded-xl bg-white space-y-6 font-sans text-slate-900 print:border-black">
-              {/* Top Banner */}
               <div className="flex items-start justify-between border-b-2 border-slate-800 pb-4">
                 <div>
                   <div className="flex items-center gap-2">
@@ -1505,7 +1510,6 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                 </div>
               </div>
 
-              {/* Route & AWB link */}
               <div className="grid grid-cols-4 gap-4 p-3 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono">
                 <div>
                   <span className="text-slate-500 block">Origin Airport</span>
@@ -1535,7 +1539,6 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                 </div>
               </div>
 
-              {/* Consignor & Consignee boxes */}
               <div className="grid grid-cols-2 gap-6 text-xs">
                 <div className="p-4 border border-slate-300 rounded-lg space-y-1">
                   <span className="font-bold text-slate-500 uppercase tracking-wider block mb-1">
@@ -1574,7 +1577,6 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                 </div>
               </div>
 
-              {/* Goods & Dimensions */}
               <div className="border border-slate-300 rounded-lg overflow-hidden text-xs">
                 <table className="w-full text-left">
                   <thead className="bg-slate-100 border-b border-slate-300 font-bold text-slate-700">
@@ -1616,7 +1618,6 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                 </table>
               </div>
 
-              {/* Commercials Summary */}
               <div className="grid grid-cols-2 gap-6 pt-2">
                 <div className="text-xs space-y-1.5 text-slate-600 font-mono">
                   {selectedDocketForPrint.ewayBillNumber && (
@@ -1693,7 +1694,6 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                 </div>
               </div>
 
-              {/* Signatures */}
               <div className="grid grid-cols-3 gap-6 pt-6 border-t border-slate-300 text-xs text-center font-sans">
                 <div className="space-y-8">
                   <div className="h-10 border-b border-dashed border-slate-400"></div>

@@ -14,11 +14,10 @@ import { MawbItem, AwbStockItem, BookingItem } from "@/types/iata";
 import { API_BASE } from "@/lib/api";
 
 interface DashboardOverviewProps {
-  // Kept for compatibility. Data is now loaded from the DB.
   mawbs?: MawbItem[];
   stock?: AwbStockItem[];
   bookings?: BookingItem[];
-  onNavigate: (page: string) => void;
+  onNavigate: (page: string, context?: Record<string, any>) => void;
 }
 
 async function getJson<T>(path: string): Promise<T | null> {
@@ -37,7 +36,6 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   bookings: propBookings = [],
   onNavigate,
 }) => {
-  // Everything is loaded straight from the DB. Props are only a fallback until it arrives.
   const [dbStock, setDbStock] = useState<AwbStockItem[] | null>(null);
   const [dbMawbs, setDbMawbs] = useState<MawbItem[] | null>(null);
   const [dbBookings, setDbBookings] = useState<BookingItem[] | null>(null);
@@ -135,7 +133,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         </div>
       </div>
 
-      {/* Hero Banner: IATA Compliance & Live Pipeline */}
+      {/* Hero Banner */}
       <div className="bg-gradient-to-r from-[#2C5EAD] to-[#1591DC] rounded-2xl p-7 text-white shadow-md shadow-[#2C5EAD]/20 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
         <div>
           <div className="flex items-center gap-2 mb-2">
@@ -307,7 +305,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         </div>
       </div>
 
-      {/* Recent MAWBs & Consolidation Status */}
+      {/* Recent MAWBs Table — ✅ Action column removed */}
       <div className="bg-white border border-slate-200/90 rounded-2xl p-7 shadow-xs">
         <div className="flex items-center justify-between mb-5">
           <div>

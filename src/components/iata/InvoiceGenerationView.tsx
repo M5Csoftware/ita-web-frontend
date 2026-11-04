@@ -37,7 +37,6 @@ import {
   ShipperConsignee,
 } from "@/types/iata";
 import { calculateRateEngineCharges } from "@/lib/rate-engine";
-
 import { API_BASE } from "@/lib/api";
 
 async function apiFetch<T>(
@@ -63,6 +62,7 @@ type InvoiceReport =
   | "CUSTOMER_LEDGER"
   | "OUTSTANDING"
   | "SHIPMENT_MARGIN";
+
 type InvoiceOption = {
   reference: string;
   label: string;
@@ -79,6 +79,17 @@ type InvoiceOption = {
   freight: number;
   fuel: number;
   security: number;
+};
+
+type FinalizedManifestMawb = {
+  mawbNumber: string;
+  manifestNumber: string;
+  flightNumber: string;
+  flightDate: string;
+  airline: string;
+  origin: string;
+  destination: string;
+  manifestStatus: "FINALIZED" | "DEPARTED";
 };
 
 interface InvoiceGenerationViewProps {
@@ -207,7 +218,7 @@ const getCustomerName = (
   agentName: string,
 ) => {
   if (party === "AGENT") return agentName;
-  const hawb = mawb.hawbs.find((item) => item.hawbNumber === hawbNumber);
+  const hawb = mawb.hawbs?.find((item) => item.hawbNumber === hawbNumber);
   return party === "SHIPPER"
     ? (hawb?.shipperName ?? mawb.shipperName)
     : (hawb?.consigneeName ?? mawb.consigneeName);
@@ -277,7 +288,7 @@ const isInvoiceClaimingOption = (
 };
 
 export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
-  mawbs,
+  mawbs: parentMawbs,
   partners,
   agentProfile,
   canCreateDraft,
@@ -294,6 +305,12 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
   const [invoices, setInvoices] = useState<CassInvoice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [apiError, setApiError] = useState("");
+
+  // ✅ SAFETY NET: Local fallback for MAWBs that might not be loaded in the parent yet
+  const [fetchedMawbs, setFetchedMawbs] = useState<MawbItem[]>([]);
+  const [finalizedManifestRows, setFinalizedManifestRows] = useState<
+    FinalizedManifestMawb[]
+  >([]);
 
   const [billToParty, setBillToParty] = useState<BillToParty>("SHIPPER");
   const [customerName, setCustomerName] = useState("");
@@ -344,18 +361,95 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
     }
   }, []);
 
+  const fetchFinalizedManifestMawbs = useCallback(async () => {
+    try {
+      const data = await apiFetch<{
+        success: boolean;
+        count: number;
+        rows: FinalizedManifestMawb[];
+      }>("/api/manifests/finalized-mawbs");
+      setFinalizedManifestRows(data.rows || []);
+    } catch (err) {
+      console.warn("Failed to load finalized-manifest MAWBs:", err);
+      setFinalizedManifestRows([]);
+    }
+  }, []);
+
   useEffect(() => {
     fetchInvoices();
-  }, [fetchInvoices]);
+    fetchFinalizedManifestMawbs();
+  }, [fetchInvoices, fetchFinalizedManifestMawbs]);
+
+  // ✅ SAFETY NET: Fetch missing MAWBs directly from DB using the new dedicated route
+  useEffect(() => {
+    const fetchMissingMawbs = async () => {
+      if (finalizedManifestRows.length === 0) return;
+
+      const parentMawbNumbers = new Set(parentMawbs.map((m) => m.mawbNumber));
+      const missingNumbers = finalizedManifestRows
+        .map((row) => row.mawbNumber)
+        .filter((num) => !parentMawbNumbers.has(num));
+
+      if (missingNumbers.length === 0) return;
+
+      try {
+        const data = await apiFetch<{ success: boolean; mawbs: MawbItem[] }>(
+          "/api/invoice-fetch/mawbs",
+          {
+            method: "POST",
+            body: JSON.stringify({ mawbNumbers: missingNumbers }),
+          },
+        );
+        setFetchedMawbs(data.mawbs || []);
+      } catch (err) {
+        console.warn("Failed to fetch missing MAWBs:", err);
+      }
+    };
+
+    fetchMissingMawbs();
+  }, [parentMawbs, finalizedManifestRows]);
+
+  // Merge parent MAWBs and locally fetched fallback MAWBs
+  const allMawbs = useMemo(() => {
+    const map = new Map<string, MawbItem>();
+    parentMawbs.forEach((m) => map.set(m.mawbNumber, m));
+    fetchedMawbs.forEach((m) => {
+      if (!map.has(m.mawbNumber)) map.set(m.mawbNumber, m);
+    });
+    return Array.from(map.values());
+  }, [parentMawbs, fetchedMawbs]);
 
   const gstRateInput = String(gstType === "ZERO_RATED" ? 0 : defaultGstRate);
+
+  // ✅ UPDATED: Check against `allMawbs` (merged state)
   const shipmentOptions = useMemo(() => {
     const options: InvoiceOption[] = [];
-    for (const mawb of mawbs) {
-      if (!isEligibleStatus(mawb.status, billingTrigger)) continue;
+
+    const manifestByMawb = new Map<string, FinalizedManifestMawb>();
+    for (const row of finalizedManifestRows) {
+      if (!manifestByMawb.has(row.mawbNumber)) {
+        manifestByMawb.set(row.mawbNumber, row);
+      }
+    }
+
+    for (const mawb of allMawbs) {
+      if (mawb.status === "CANCELLED" || mawb.status === "VOID") continue;
+
+      const manifestInfo = manifestByMawb.get(mawb.mawbNumber);
+      const statusEligible = isEligibleStatus(mawb.status, billingTrigger);
+      const manifestEligible = Boolean(manifestInfo);
+
+      if (!statusEligible && !manifestEligible) continue;
+
+      const flightNumber = manifestInfo?.flightNumber ?? mawb.flightNumber;
+      const flightDate = manifestInfo?.flightDate ?? mawb.flightDate;
+      const manifestTag = manifestInfo
+        ? ` · FFM ${manifestInfo.manifestNumber}`
+        : "";
+
       const mawbOption: InvoiceOption = {
         reference: `MAWB:${mawb.mawbNumber}`,
-        label: mawb.mawbNumber,
+        label: `${mawb.mawbNumber}${manifestTag}`,
         customerName: getCustomerName(
           mawb,
           undefined,
@@ -368,28 +462,35 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
         chargeableWeightKg: mawb.chargeableWeightKg,
         origin: mawb.origin,
         destination: mawb.destination,
-        flightNumber: mawb.flightNumber,
-        flightDate: mawb.flightDate,
-        freight: mawb.freightAmount,
-        fuel: mawb.fuelSurcharge,
-        security: mawb.securitySurcharge,
+        flightNumber,
+        flightDate,
+        freight: mawb.freightAmount || 0,
+        fuel: mawb.fuelSurcharge || 0,
+        security: mawb.securitySurcharge || 0,
       };
+
       if (
         !invoices.some((invoice) =>
           isInvoiceClaimingOption(invoice, mawbOption),
         )
-      )
+      ) {
         options.push(mawbOption);
+      }
 
-      for (const hawb of mawb.hawbs) {
-        if (!isEligibleStatus(hawb.status, billingTrigger)) continue;
+      for (const hawb of mawb.hawbs || []) {
+        const hawbStatusEligible = isEligibleStatus(
+          hawb.status,
+          billingTrigger,
+        );
+        if (!hawbStatusEligible && !manifestEligible) continue;
+
         const ratio =
           mawb.chargeableWeightKg > 0
             ? hawb.chargeableWeightKg / mawb.chargeableWeightKg
             : 0;
         const hawbOption: InvoiceOption = {
           reference: `HAWB:${hawb.hawbNumber}`,
-          label: `${hawb.hawbNumber} · ${mawb.mawbNumber}`,
+          label: `${hawb.hawbNumber} · ${mawb.mawbNumber}${manifestTag}`,
           customerName: getCustomerName(
             mawb,
             hawb.hawbNumber,
@@ -403,22 +504,30 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
           chargeableWeightKg: hawb.chargeableWeightKg,
           origin: hawb.origin,
           destination: hawb.destination,
-          flightNumber: mawb.flightNumber,
-          flightDate: mawb.flightDate,
-          freight: Number((mawb.freightAmount * ratio).toFixed(2)),
-          fuel: Number((mawb.fuelSurcharge * ratio).toFixed(2)),
-          security: Number((mawb.securitySurcharge * ratio).toFixed(2)),
+          flightNumber,
+          flightDate,
+          freight: Number(((mawb.freightAmount || 0) * ratio).toFixed(2)),
+          fuel: Number(((mawb.fuelSurcharge || 0) * ratio).toFixed(2)),
+          security: Number(((mawb.securitySurcharge || 0) * ratio).toFixed(2)),
         };
         if (
           !invoices.some((invoice) =>
             isInvoiceClaimingOption(invoice, hawbOption),
           )
-        )
+        ) {
           options.push(hawbOption);
+        }
       }
     }
     return options;
-  }, [mawbs, billingTrigger, billToParty, agentProfile.name, invoices]);
+  }, [
+    allMawbs,
+    finalizedManifestRows,
+    billingTrigger,
+    billToParty,
+    agentProfile.name,
+    invoices,
+  ]);
 
   const customerOptions = Array.from(
     new Set(shipmentOptions.map((option) => option.customerName)),
@@ -437,6 +546,7 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
     billToParty === "AGENT"
       ? agentProfile.gstNumber
       : (selectedPartner?.taxOrGstId ?? "");
+
   const dateFilteredInvoices = invoices.filter(
     (invoice) =>
       (!dateFrom || invoice.date >= dateFrom) &&
@@ -446,6 +556,7 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
     (invoice) =>
       invoiceFilter === "ALL" || getInvoiceStatus(invoice) === invoiceFilter,
   );
+
   const totalInvoiced = invoices
     .filter(
       (invoice) =>
@@ -453,6 +564,7 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
         getInvoiceStatus(invoice) !== "CANCELLED",
     )
     .reduce((sum, invoice) => sum + invoice.totalAmount, 0);
+
   const outstanding = invoices
     .filter(
       (invoice) =>
@@ -522,7 +634,6 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
     }
     setFormError("");
 
-    // ✅ Rate engine integration
     const totalWeight = selectedOptions.reduce(
       (s, o) => s + o.chargeableWeightKg,
       0,
@@ -649,8 +760,7 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
       companyLogoUrl: agentProfile.logoUrl || "",
       companyBankDetails: agentProfile.bankDetails || "",
       companyTerms:
-        agentProfile.terms ||
-        "Payment due within 30 days of invoice date.",
+        agentProfile.terms || "Payment due within 30 days of invoice date.",
       invoiceStatus: "DRAFT",
       cassReconciliationStatus: "PENDING_MATCH",
       paymentStatus: "UNPAID",
@@ -1157,11 +1267,11 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
               Place-of-supply GST treatment
               <select
                 value={gstType}
-                onChange={(event) => {
+                onChange={(event) =>
                   setGstType(
                     event.target.value as NonNullable<CassInvoice["gstType"]>,
-                  );
-                }}
+                  )
+                }
                 className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-medium text-slate-800"
               >
                 <option value="CGST_SGST">CGST + SGST</option>
@@ -1206,6 +1316,9 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
                         <span className="block text-xs text-slate-500">
                           {option.origin} → {option.destination} ·{" "}
                           {option.pieces} pcs · {option.chargeableWeightKg} kg
+                          {option.flightNumber
+                            ? ` · ${option.flightNumber}`
+                            : ""}
                         </span>
                       </span>
                       <span className="text-xs font-semibold text-slate-600">
@@ -1423,7 +1536,7 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
               })();
               return (
                 <article
-                  key={invoice.id}
+                  key={invoice.id || (invoice as any)._id || Math.random().toString()}
                   data-print-active={opened}
                   className="invoice-print-target overflow-hidden rounded-xl border border-slate-200"
                 >
@@ -1765,8 +1878,7 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
                                 }
                                 className="mb-1 inline-flex items-center gap-1 text-xs font-bold text-[#2C5EAD]"
                               >
-                                <Plus className="h-3.5 w-3.5" />
-                                Add charge
+                                <Plus className="h-3.5 w-3.5" /> Add charge
                               </button>
                               {(draftEdit.chargeLines ?? []).map((line) => {
                                 const original = invoice.chargeLines?.find(
@@ -2059,8 +2171,8 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
                             onClick={() => approveInvoice(invoice.id)}
                             className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700"
                           >
-                            <Check className="h-3.5 w-3.5" />
-                            Approve &amp; number
+                            <Check className="h-3.5 w-3.5" /> Approve &amp;
+                            number
                           </button>
                         )}
                         {status === "APPROVED" && canApproveInvoices && (
@@ -2078,8 +2190,8 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
                               onClick={() => window.print()}
                               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
                             >
-                              <Printer className="h-3.5 w-3.5" />
-                              Print / Save PDF
+                              <Printer className="h-3.5 w-3.5" /> Print / Save
+                              PDF
                             </button>
                           )}
                         {!isDraft &&
@@ -2097,8 +2209,7 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
                               }}
                               className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 text-xs font-bold"
                             >
-                              <Mail className="h-3.5 w-3.5" />
-                              Email PDF
+                              <Mail className="h-3.5 w-3.5" /> Email PDF
                             </button>
                           )}
                         {canApproveInvoices && status !== "CANCELLED" && (
@@ -2411,18 +2522,16 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
             absent from shipment data.
           </p>
           <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
-            <LockKeyhole className="h-4 w-4 shrink-0" />
-            Financial-year numbering is sequential; cancelled invoice numbers
-            remain reserved.
+            <LockKeyhole className="h-4 w-4 shrink-0" /> Financial-year
+            numbering is sequential; cancelled invoice numbers remain reserved.
           </div>
           <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
-            <FileCheck2 className="h-4 w-4 shrink-0" />
-            CSV register export opens in Excel; use Print / Save PDF for invoice
-            output.
+            <FileCheck2 className="h-4 w-4 shrink-0" /> CSV register export
+            opens in Excel; use Print / Save PDF for invoice output.
           </div>
           <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
-            <FileText className="h-4 w-4 shrink-0" />
-            {actor} · front-end audit history recorded with invoice actions
+            <FileText className="h-4 w-4 shrink-0" /> {actor} · front-end audit
+            history recorded with invoice actions
           </div>
         </div>
       </section>
