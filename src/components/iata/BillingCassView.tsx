@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Receipt, Loader2, AlertCircle } from "lucide-react";
 import { CassInvoice } from "@/types/iata";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+import { API_BASE } from "@/lib/api";
 
 async function apiFetch<T>(
   path: string,

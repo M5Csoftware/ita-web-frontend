@@ -161,7 +161,7 @@ export function MawbSheet({
       {showPage1 && (
         <div
           id="mawb-page-1"
-          className="mawb-page-sheet bg-white text-black font-sans mx-auto shadow-2xl print:shadow-none flex flex-col justify-between"
+          className="mawb-page-sheet bg-white text-black font-sans mx-auto shadow-2xl print:shadow-none print:m-0 print:p-0 flex flex-col justify-between"
           style={{
             width: "210mm",
             minHeight: "297mm",
@@ -1116,7 +1116,7 @@ export function MawbSheet({
       {showPage2 && (
         <div
           id="mawb-page-2"
-          className="mawb-page-sheet bg-white text-black font-sans mx-auto shadow-2xl print:shadow-none flex flex-col justify-between"
+          className="mawb-page-sheet bg-white text-black font-sans mx-auto shadow-2xl print:shadow-none print:m-0 print:p-0 flex flex-col justify-between"
           style={{
             width: "210mm",
             minHeight: "297mm",

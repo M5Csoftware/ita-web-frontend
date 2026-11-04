@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { MawbItem, AwbStockItem, BookingItem } from "@/types/iata";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+import { API_BASE } from "@/lib/api";
 
 interface DashboardOverviewProps {
   // Kept for compatibility. Data is now loaded from the DB.
