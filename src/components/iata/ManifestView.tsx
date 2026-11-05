@@ -79,17 +79,12 @@ export const ManifestView: React.FC<ManifestViewProps> = () => {
   const [modalZoom, setModalZoom] = useState<number>(1);
 
   const handlePrintPdf = async () => {
-    if (isExporting) return;
+    if (!printManifest || isExporting) return;
     setIsExporting(true);
     try {
-      await printManifestPdf();
+      await printManifestPdf(printManifest, mawbs);
     } catch (err) {
-      console.error("Print Manifest PDF failed, falling back to window.print():", err);
-      const prev = document.body.dataset.printMode;
-      document.body.dataset.printMode = "manifest";
-      window.print();
-      if (prev) document.body.dataset.printMode = prev;
-      else delete document.body.dataset.printMode;
+      console.error("Print Manifest PDF error:", err);
     } finally {
       setIsExporting(false);
     }
@@ -99,9 +94,7 @@ export const ManifestView: React.FC<ManifestViewProps> = () => {
     if (!printManifest || isExporting) return;
     setIsExporting(true);
     try {
-      const cleanNum = (printManifest.manifestNumber || printManifest.mawbs?.[0] || "Manifest").replace(/[^a-zA-Z0-9_-]/g, "_");
-      const fileName = `Manifest_${cleanNum}.pdf`;
-      await downloadManifestPdf(fileName);
+      await downloadManifestPdf(printManifest, mawbs);
     } catch (err) {
       console.error("Download Manifest PDF error:", err);
     } finally {
@@ -356,11 +349,27 @@ export const ManifestView: React.FC<ManifestViewProps> = () => {
                           setPrintManifest(mnf);
                           setModalZoom(1);
                         }}
-                        className="px-3 py-1.5 bg-[#2C5EAD]/10 hover:bg-[#2C5EAD]/20 text-[#2C5EAD] border border-[#2C5EAD]/30 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                        title="Generate and print / download manifest PDF"
+                        className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                        title="Preview manifest and print"
                       >
                         <Printer className="w-3.5 h-3.5" />
-                        <span>Print / PDF</span>
+                        <span>Preview &amp; Print</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await downloadManifestPdf(mnf, mawbs);
+                          } catch (e) {
+                            console.error("Failed to download manifest:", e);
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-[#2C5EAD] hover:bg-[#204580] text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                        title="Direct download horizontal A4 landscape PDF"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download PDF</span>
                       </button>
 
                       {mnf.status === "DRAFT" && (
@@ -628,19 +637,32 @@ export const ManifestView: React.FC<ManifestViewProps> = () => {
             </div>
 
             <div className="mt-6 pt-4 flex justify-between items-center border-t border-slate-200">
-              <button
-                onClick={() => {
-                  setPrintManifest(viewingManifest);
-                  setModalZoom(1);
-                }}
-                className="px-4 py-2 bg-[#2C5EAD] hover:bg-[#204580] text-white rounded-xl font-bold flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
-              >
-                <Printer className="w-4 h-4" />
-                <span>Generate Manifest PDF</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setPrintManifest(viewingManifest);
+                    setModalZoom(1);
+                  }}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-xl font-bold flex items-center gap-1.5 transition-colors cursor-pointer text-xs"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Preview &amp; Print</span>
+                </button>
+                <button
+                  onClick={async () => {
+                    if (viewingManifest) {
+                      await downloadManifestPdf(viewingManifest, mawbs);
+                    }
+                  }}
+                  className="px-4 py-2 bg-[#2C5EAD] hover:bg-[#204580] text-white rounded-xl font-bold flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer text-xs"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download PDF</span>
+                </button>
+              </div>
               <button
                 onClick={() => setViewingManifest(null)}
-                className="px-4 py-2 bg-[#2C5EAD] text-white rounded-xl font-bold"
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs cursor-pointer"
               >
                 Close
               </button>
@@ -707,30 +729,32 @@ export const ManifestView: React.FC<ManifestViewProps> = () => {
                   </button>
                 </div>
 
+                {/* Download PDF Button - Primary prominent action */}
+                <button
+                  type="button"
+                  onClick={handleDownloadPdf}
+                  disabled={isExporting}
+                  className="px-4 py-2 bg-[#2C5EAD] hover:bg-[#204580] disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition-all shrink-0 cursor-pointer"
+                  title="Download authentic horizontal A4 Landscape PDF file"
+                >
+                  {isExporting ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  <span>{isExporting ? "Generating..." : "Download Landscape PDF"}</span>
+                </button>
+
                 {/* Print Button */}
                 <button
                   type="button"
                   onClick={handlePrintPdf}
                   disabled={isExporting}
-                  className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-50 rounded-lg text-xs font-bold flex items-center gap-1.5 border border-slate-300 transition-colors shadow-xs shrink-0 cursor-pointer"
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-50 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-300 transition-colors shadow-xs shrink-0 cursor-pointer"
+                  title="Print to printer (forces landscape layout)"
                 >
-                  <Printer className="w-3.5 h-3.5 text-slate-600" />
-                  <span>Print / Save PDF</span>
-                </button>
-
-                {/* Download PDF Button */}
-                <button
-                  type="button"
-                  onClick={handleDownloadPdf}
-                  disabled={isExporting}
-                  className="px-3.5 py-1.5 bg-[#2C5EAD] hover:bg-[#234c8d] disabled:opacity-50 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors shrink-0 cursor-pointer"
-                >
-                  {isExporting ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Download className="w-3.5 h-3.5" />
-                  )}
-                  <span>{isExporting ? "Generating..." : "Download PDF"}</span>
+                  <Printer className="w-4 h-4 text-slate-600" />
+                  <span>Print</span>
                 </button>
 
                 {/* Close Button */}

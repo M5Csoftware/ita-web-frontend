@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { MawbItem, HawbItem } from "@/types/iata";
 import { MawbSheet } from "./MawbSheet";
+import { MawbPrintEditorModal } from "./MawbPrintEditorModal";
 import { MawbData } from "@/types/mawb";
 import { downloadMawbPdf, printMawbPdf } from "@/lib/mawb-pdf-export";
 
@@ -296,8 +297,17 @@ export const AwbConsolidationView: React.FC<AwbConsolidationViewProps> = () => {
     setTimeout(() => setSuccessMsg(""), 5000);
   };
 
+  const [editorInitialViewMode, setEditorInitialViewMode] = useState<"split" | "edit" | "preview">("split");
+
   const handleOpenPrint = (mawb: MawbItem) => {
     setSelectedMawb(mawb);
+    setEditorInitialViewMode("split");
+    setIsPrintModalOpen(true);
+  };
+
+  const handleOpenQuickPrint = (mawb: MawbItem) => {
+    setSelectedMawb(mawb);
+    setEditorInitialViewMode("preview");
     setIsPrintModalOpen(true);
   };
 
@@ -995,10 +1005,20 @@ export const AwbConsolidationView: React.FC<AwbConsolidationViewProps> = () => {
 
                   <button
                     onClick={() => handleOpenPrint(mawb)}
-                    className="px-4 py-1.5 bg-[#2C5EAD] hover:bg-[#234c8d] text-white font-bold font-heading rounded-xl text-xs flex items-center gap-1.5 transition-all shadow-sm"
+                    className="px-3.5 py-1.5 bg-[#2C5EAD] hover:bg-[#204580] text-white font-bold font-heading rounded-xl text-xs flex items-center gap-1.5 transition-all shadow-sm shadow-[#2C5EAD]/20 cursor-pointer"
+                    title="Open interface with input boxes for all PDF values to edit and print"
                   >
-                    <Printer className="w-4 h-4" />
-                    <span>Print IATA AWB</span>
+                    <Pencil className="w-3.5 h-3.5" />
+                    <span>Edit &amp; Print IATA AWB</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleOpenQuickPrint(mawb)}
+                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 font-bold font-heading rounded-xl text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                    title="Directly view and print without editing"
+                  >
+                    <Printer className="w-3.5 h-3.5 text-slate-600" />
+                    <span>Quick Print</span>
                   </button>
                 </div>
               </div>
@@ -1173,182 +1193,20 @@ export const AwbConsolidationView: React.FC<AwbConsolidationViewProps> = () => {
         })}
       </div>
 
-      {/* Print modal — renders the AUTHENTIC MawbSheet */}
-      {isPrintModalOpen && selectedMawb && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-1.5 sm:p-2.5 bg-slate-900/65 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white border border-slate-200 rounded-2xl w-[98vw] max-w-[1700px] h-[96vh] max-h-[96vh] flex flex-col shadow-2xl text-slate-900 print:m-0 print:max-h-none print:max-w-none print:w-full print:rounded-none print:border-0 print:shadow-none overflow-hidden">
-            {/* Modal Header */}
-            <div className="px-5 py-3.5 border-b border-slate-200 flex flex-wrap xl:flex-nowrap items-center justify-between gap-3 bg-white sticky top-0 z-20 print:hidden shrink-0 shadow-xs">
-              <div className="flex items-center gap-3 shrink-0">
-                <div className="w-9 h-9 rounded-xl bg-[#2C5EAD]/10 text-[#2C5EAD] flex items-center justify-center shrink-0">
-                  <Plane className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-base font-bold font-heading text-slate-900">
-                      IATA Standard Air Waybill (Res 600b Format)
-                    </h3>
-                    <span className="hidden sm:inline-block rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] font-semibold text-[#2C5EAD] border border-blue-500/20">
-                      MAWB Preview
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-500 font-mono">
-                    AWB: <span className="font-semibold text-slate-700">{selectedMawb.mawbNumber}</span>
-                  </p>
-                </div>
-              </div>
-
-              {/* Action Toolbar with generous spacing */}
-              <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
-                {/* Zoom Controls */}
-                <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setModalZoom((z) => Math.max(0.6, parseFloat((z - 0.1).toFixed(2))))}
-                    className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-white rounded-md transition-all cursor-pointer"
-                    title="Zoom out"
-                  >
-                    <ZoomOut className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setModalZoom(1)}
-                    className="px-2 py-1 text-[11px] font-mono font-semibold text-slate-700 hover:text-slate-900 cursor-pointer"
-                    title="Reset zoom to 100%"
-                  >
-                    {Math.round(modalZoom * 100)}%
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setModalZoom((z) => Math.min(1.5, parseFloat((z + 0.1).toFixed(2))))}
-                    className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-white rounded-md transition-all cursor-pointer"
-                    title="Zoom in"
-                  >
-                    <ZoomIn className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                {/* Page Selection Tabs */}
-                <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setPrintActivePage("both")}
-                    className={`px-2.5 py-1.5 rounded-md font-semibold transition-all cursor-pointer ${
-                      printActivePage === "both"
-                        ? "bg-white text-slate-900 shadow-xs"
-                        : "text-slate-500 hover:text-slate-800"
-                    }`}
-                    title="View Both Page 1 (Face) and Page 2 (Terms)"
-                  >
-                    Both Pages
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPrintActivePage("face")}
-                    className={`px-2.5 py-1.5 rounded-md font-semibold transition-all cursor-pointer ${
-                      printActivePage === "face"
-                        ? "bg-white text-slate-900 shadow-xs"
-                        : "text-slate-500 hover:text-slate-800"
-                    }`}
-                    title="Page 1 (Air Waybill Face only)"
-                  >
-                    Page 1 Face
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPrintActivePage("conditions")}
-                    className={`px-2.5 py-1.5 rounded-md font-semibold transition-all cursor-pointer ${
-                      printActivePage === "conditions"
-                        ? "bg-white text-slate-900 shadow-xs"
-                        : "text-slate-500 hover:text-slate-800"
-                    }`}
-                    title="Page 2 (Conditions of Contract only)"
-                  >
-                    Page 2 Terms
-                  </button>
-                </div>
-
-                {/* Copy Designation Dropdown */}
-                <select
-                  value={printCopyType}
-                  onChange={(e) =>
-                    setPrintCopyType(
-                      e.target.value as
-                        | "ORIGINAL_1"
-                        | "ORIGINAL_2"
-                        | "ORIGINAL_3"
-                        | "EXTRA",
-                    )
-                  }
-                  className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-300 rounded-lg text-slate-800 shadow-xs focus:ring-2 focus:ring-[#2C5EAD]/20 focus:border-[#2C5EAD] shrink-0"
-                >
-                  <option value="ORIGINAL_1">
-                    Original 1 (Carrier - Green)
-                  </option>
-                  <option value="ORIGINAL_2">
-                    Original 2 (Consignee - Pink)
-                  </option>
-                  <option value="ORIGINAL_3">
-                    Original 3 (Shipper - Blue)
-                  </option>
-                  <option value="EXTRA">
-                    Copy 4 (Delivery Receipt)
-                  </option>
-                </select>
-
-                {/* Print Button */}
-                <button
-                  type="button"
-                  onClick={handlePrintPdf}
-                  disabled={isExporting}
-                  className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-50 rounded-lg text-xs font-bold flex items-center gap-1.5 border border-slate-300 transition-colors shadow-xs shrink-0 cursor-pointer"
-                >
-                  <Printer className="w-3.5 h-3.5 text-slate-600" />
-                  <span>Print / Save PDF</span>
-                </button>
-
-                {/* Download PDF Button */}
-                <button
-                  type="button"
-                  onClick={handleDownloadPdf}
-                  disabled={isExporting}
-                  className="px-3.5 py-1.5 bg-[#2C5EAD] hover:bg-[#234c8d] disabled:opacity-50 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors shrink-0 cursor-pointer"
-                >
-                  {isExporting ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Download className="w-3.5 h-3.5" />
-                  )}
-                  <span>{isExporting ? "Generating..." : "Download PDF"}</span>
-                </button>
-
-                {/* Close Button */}
-                <button
-                  type="button"
-                  onClick={() => setIsPrintModalOpen(false)}
-                  className="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors shrink-0 cursor-pointer"
-                  title="Close modal"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Scrollable Preview Area with generous padding */}
-            <div className="flex-1 overflow-y-auto overflow-x-auto p-6 sm:p-10 bg-slate-200/60 print:bg-white print:p-0">
-              <div className="flex justify-center min-w-max mx-auto py-4">
-                <MawbSheet
-                  data={buildMawbData(
-                    selectedMawb,
-                    copyDesignationFor(printCopyType),
-                  )}
-                  activePage={printActivePage}
-                  scale={modalZoom}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
+      {/* Editable Print Modal */}
+      {selectedMawb && (
+        <MawbPrintEditorModal
+          isOpen={isPrintModalOpen}
+          onClose={() => setIsPrintModalOpen(false)}
+          mawbNumber={selectedMawb.mawbNumber}
+          initialData={buildMawbData(
+            selectedMawb,
+            copyDesignationFor(printCopyType),
+          )}
+          copyType={printCopyType}
+          onCopyTypeChange={setPrintCopyType}
+          initialViewMode={editorInitialViewMode}
+        />
       )}
 
       {/* Add HAWB Modal */}

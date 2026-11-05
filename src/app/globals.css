@@ -55,6 +55,11 @@ h6 {
     margin: 0;
   }
 
+  @page manifestLandscape {
+    size: A4 landscape;
+    margin: 0;
+  }
+
   html,
   body {
     background: #fff !important;
@@ -170,6 +175,7 @@ h6 {
   /* ---------- MODE: MANIFEST ---------- */
   body[data-print-mode="manifest"] {
     overflow: visible !important;
+    page: manifestLandscape;
   }
 
   body[data-print-mode="manifest"] * {
@@ -190,13 +196,20 @@ h6 {
     margin: 0 !important;
   }
 
+  body[data-print-mode="manifest"] .overflow-hidden,
+  body[data-print-mode="manifest"] .overflow-y-auto,
+  body[data-print-mode="manifest"] .overflow-x-auto,
   body[data-print-mode="manifest"] .max-h-\[90vh\],
   body[data-print-mode="manifest"] .max-h-\[92vh\],
   body[data-print-mode="manifest"] .max-h-\[94vh\],
-  body[data-print-mode="manifest"] .max-h-\[96vh\] {
+  body[data-print-mode="manifest"] .max-h-\[96vh\],
+  body[data-print-mode="manifest"] .h-\[96vh\] {
     max-height: none !important;
     height: auto !important;
     overflow: visible !important;
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
   }
 
   body[data-print-mode="manifest"] .manifest-scale-wrapper {
@@ -208,6 +221,7 @@ h6 {
   }
 
   body[data-print-mode="manifest"] #manifest-sheet-target {
+    page: manifestLandscape;
     position: relative !important;
     width: 297mm !important;
     min-height: 210mm !important;
