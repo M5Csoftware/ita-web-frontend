@@ -8,6 +8,7 @@ export type AwbStatus =
   | "DEPARTED"
   | "ARRIVED"
   | "DELIVERED"
+  | "CANCELLED"
   | "VOID";
 
 export type SpecialHandlingCode =
@@ -176,11 +177,23 @@ export interface DocketItem {
   createdAt: string;
 }
 
+/**
+ * A single AWB stock entry (Res 600b Mod-7).
+ *
+ * NEW: `airlineCode` + `airlineName` are persisted so the ledger table can
+ * show the airline's 2-letter IATA code and human-readable name without a
+ * join against the airline master every time the table renders.
+ *
+ * `fullAwbNumber` follows the canonical DISPLAY format:
+ *   "<3-digit prefix>-<8-digit serial>", e.g. "098-72418992"
+ */
 export interface AwbStockItem {
   id: string;
-  airlinePrefix: string;
-  airlineNumber: string; // 8-digit serial with check digit
-  fullAwbNumber: string; // e.g. "098-72418935"
+  airlinePrefix: string; // "098"
+  airlineCode?: string; // "AI"
+  airlineName?: string; // "Air India"
+  airlineNumber: string; // 8-digit serial with Mod-7 check digit, e.g. "72418992"
+  fullAwbNumber: string; // e.g. "098-72418992"
   status: "AVAILABLE" | "ALLOTTED" | "ISSUED" | "VOID";
   allocatedTo?: string;
   issuedAt?: string;
@@ -215,10 +228,10 @@ export interface BookingItem {
 /**
  * House Air Waybill.
  *
- * NEW: optional per-house shipper/consignee address + tax fields so that a
+ * Optional per-house shipper/consignee address + tax fields so that a
  * consolidated HAWB can have its own address block distinct from the Master.
- * These are populated by the "Edit HAWB" form in AwbConsolidationView and
- * used to fill the printed MAWB "Nature & Quantity" block + HAWB sub-table.
+ * Populated by the "Edit HAWB" form in AwbConsolidationView and used to fill
+ * the printed MAWB "Nature & Quantity" block + HAWB sub-table.
  */
 export interface HawbItem {
   id: string;
@@ -247,19 +260,16 @@ export interface HawbItem {
 /**
  * Master Air Waybill.
  *
- * NEW (optional) fields consumed by the printable MawbSheet:
- *  - carrierName            -> printed next to "AIR WAYBILL" (defaults to "EGYPT AIR")
+ * Optional fields consumed by the printable MawbSheet:
+ *  - carrierName            -> printed next to "AIR WAYBILL"
  *  - issuingAgentAccountNo  -> printed in the "Account No." box below IATA Code
  *  - copiesNotice           -> overrides the default copies-validity text
  *  - contractNotice         -> overrides the default conditions-of-contract paragraph
  *  - accountingInfo         -> overrides the "FREIGHT PREPAID" box
- *
- * All four are optional; buildMawbData() falls back to sensible IATA defaults
- * when they are absent, so existing DB rows keep working without migration.
  */
 export interface MawbItem {
   id: string;
-  mawbNumber: string; // "098-72418935"
+  mawbNumber: string; // "098-72418992"
   airlinePrefix: string;
   serialNumber: string;
   bookingId?: string;
@@ -476,23 +486,67 @@ export function calculateInvoiceAmounts(
   };
 }
 
-// IATA Resolution 600b Modulo-7 check digit validator
+/* -------------------------------------------------------------------------- */
+/*  IATA Resolution 600b — Modulo-7 Check Digit                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Structured result from `validateIataAwbNumber`.
+ * Shared with `utils/iataMod7.ts` so both files agree on the shape.
+ */
+export interface IataAwbValidation {
+  isValid: boolean;
+  expectedCheckDigit: number;
+  actualCheckDigit: number;
+}
+
+/**
+ * Compute the IATA Resolution 600b Mod-7 check digit.
+ *
+ * Formula: Check Digit = (first 7 digits of the serial) mod 7
+ * Range:   0..6
+ * Example: "7241899" → 7241899 % 7 = 2 → check digit "2"
+ */
 export function calculateIataMod7CheckDigit(
   sevenDigits: string | number,
 ): number {
-  const num = parseInt(String(sevenDigits).slice(0, 7), 10);
+  const clean = String(sevenDigits).replace(/[^0-9]/g, "");
+  if (clean.length === 0) return 0;
+  const num = parseInt(clean.slice(0, 7), 10);
   if (isNaN(num)) return 0;
   return num % 7;
 }
 
-export function validateIataAwbNumber(eightDigitSerial: string): boolean {
-  if (!eightDigitSerial || eightDigitSerial.length !== 8) return false;
-  const firstSeven = eightDigitSerial.slice(0, 7);
-  const checkDigit = parseInt(eightDigitSerial.slice(7), 10);
-  return calculateIataMod7CheckDigit(firstSeven) === checkDigit;
+/**
+ * Validate an 8-digit AWB serial (7 data digits + 1 Mod-7 check digit).
+ *
+ * Accepts input with or without separators (e.g. "72418992", "724-18992",
+ * "724 18992"). Non-digit characters are stripped before validation.
+ */
+export function validateIataAwbNumber(
+  eightDigitSerial: string,
+): IataAwbValidation {
+  const clean = String(eightDigitSerial).replace(/[^0-9]/g, "");
+  if (clean.length !== 8) {
+    return { isValid: false, expectedCheckDigit: -1, actualCheckDigit: -1 };
+  }
+  const firstSeven = clean.slice(0, 7);
+  const actualCheckDigit = parseInt(clean.slice(7), 10);
+  const expectedCheckDigit = calculateIataMod7CheckDigit(firstSeven);
+  return {
+    isValid: expectedCheckDigit === actualCheckDigit,
+    expectedCheckDigit,
+    actualCheckDigit,
+  };
 }
 
-// IATA Volumetric calculation formula: (L x W x H in cm) / 6000
+/* -------------------------------------------------------------------------- */
+/*  Weight calculation                                                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * IATA Volumetric calculation formula: (L x W x H in cm) / 6000
+ */
 export function calculateVolumetricWeight(
   dimensions: DimensionEntry[],
 ): number {
