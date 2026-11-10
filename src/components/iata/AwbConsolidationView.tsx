@@ -19,7 +19,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { MawbItem, HawbItem } from "@/types/iata";
+import { IssuingAgentProfile, MawbItem, HawbItem } from "@/types/iata";
 import { MawbSheet } from "./MawbSheet";
 import { MawbPrintEditorModal } from "./MawbPrintEditorModal";
 import { MawbData } from "@/types/mawb";
@@ -101,6 +101,7 @@ const EDIT_INPUT =
 
 interface AwbConsolidationViewProps {
   mawbs?: MawbItem[];
+  agentProfile?: IssuingAgentProfile;
   onAddHawb?: (
     mawbId: string,
     hawb: Omit<HawbItem, "id" | "mawbNumber" | "status">,
@@ -111,7 +112,11 @@ interface AwbConsolidationViewProps {
 /**
  * Map a DB MAWB (MawbItem) into the printable MawbSheet data shape (MawbData).
  */
-function buildMawbData(m: MawbItem, copyDesignation: string): MawbData {
+function buildMawbData(
+  m: MawbItem,
+  copyDesignation: string,
+  agentProfile?: IssuingAgentProfile,
+): MawbData {
   const raw = (m.mawbNumber || "").trim();
   const dashIdx = raw.indexOf("-");
   let prefix = "077";
@@ -132,6 +137,10 @@ function buildMawbData(m: MawbItem, copyDesignation: string): MawbData {
   const fsc = Number(m.fuelSurcharge) || 0;
   const ssc = Number(m.securitySurcharge) || 0;
   const total = Number(m.totalCharges) || freight + fsc + ssc;
+  const issuingAgentName =
+    agentProfile?.name?.trim() || "M5 Continent Logistics Solution Pvt Ltd";
+  const issuingAgentIataCode =
+    agentProfile?.iataNumericCode?.trim() || "14026840004";
 
   const otherChargesParts: string[] = [];
   if (fsc > 0) otherChargesParts.push(`FSC: ${fsc.toFixed(2)}`);
@@ -173,8 +182,8 @@ function buildMawbData(m: MawbItem, copyDesignation: string): MawbData {
       accountNumber: "",
     },
     issuingAgent: {
-      nameAndCity: m.issuingAgentName || "",
-      iataCode: m.issuingAgentIataCode || "",
+      nameAndCity: issuingAgentName,
+      iataCode: issuingAgentIataCode,
       accountNo: m.issuingAgentIataCode || "",
     },
     accountingInfo: "FREIGHT PREPAID",
@@ -213,10 +222,10 @@ function buildMawbData(m: MawbItem, copyDesignation: string): MawbData {
       otherChargesBreakdown: otherCharges,
     },
     execution: {
-      shipperCertSignatory: m.shipperName || "",
+      shipperCertSignatory: issuingAgentName,
       executedDate: m.flightDate || new Date().toISOString().slice(0, 10),
       executedPlace: m.origin || "",
-      carrierAgentSignature: m.issuingAgentName || "",
+      carrierAgentSignature: issuingAgentName,
       copyDesignation,
     },
   };
@@ -237,7 +246,9 @@ function copyDesignationFor(
   }
 }
 
-export const AwbConsolidationView: React.FC<AwbConsolidationViewProps> = () => {
+export const AwbConsolidationView: React.FC<AwbConsolidationViewProps> = ({
+  agentProfile,
+}) => {
   const [mawbs, setMawbs] = useState<MawbItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -1202,6 +1213,7 @@ export const AwbConsolidationView: React.FC<AwbConsolidationViewProps> = () => {
           initialData={buildMawbData(
             selectedMawb,
             copyDesignationFor(printCopyType),
+            agentProfile,
           )}
           copyType={printCopyType}
           onCopyTypeChange={setPrintCopyType}

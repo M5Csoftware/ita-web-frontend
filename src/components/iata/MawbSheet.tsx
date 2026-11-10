@@ -292,7 +292,7 @@ export function MawbSheet({
                         Agent&apos;s IATA Code
                       </div>
                       <div className="font-bold text-[8.5px] tracking-wider mt-1 pl-0.5">
-                        {data.issuingAgent.iataCode || "14-0-26840004"}
+                        {data.issuingAgent.iataCode || "14026840004"}
                       </div>
                     </div>
                     <div className="w-1/2 p-1.5">

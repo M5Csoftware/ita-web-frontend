@@ -1655,6 +1655,7 @@ ${hawbLines}`;
           {effectiveActivePage === "mawb" && allowedTabs.includes("mawb") && (
             <AwbConsolidationView
               mawbs={mawbs}
+              agentProfile={agentProfile || ISSUING_AGENT_PROFILE}
               onAddHawb={handleAddHawb}
               onVoidMawb={handleVoidMawb}
             />

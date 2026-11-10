@@ -610,7 +610,7 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                       type="text"
                       value={data.issuingAgent.iataCode || ""}
                       onChange={(e) => setAgent("iataCode", e.target.value)}
-                      placeholder="14-0-26840004"
+                      placeholder="14026840004"
                       className={INPUT_BASE}
                     />
                   </div>
