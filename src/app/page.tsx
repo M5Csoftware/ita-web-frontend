@@ -58,26 +58,33 @@ interface InvoiceConfiguration {
 const isStoredCassInvoice = (value: unknown): value is CassInvoice => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const invoice = value as Record<string, unknown>;
-  return (
-    typeof invoice.id === "string" &&
-    typeof invoice.invoiceNumber === "string" &&
-    typeof invoice.mawbNumber === "string" &&
-    typeof invoice.customerName === "string" &&
-    typeof invoice.date === "string" &&
-    typeof invoice.freightCharges === "number" &&
-    typeof invoice.fuelSurcharge === "number" &&
-    typeof invoice.securitySurcharge === "number" &&
-    typeof invoice.handlingCharges === "number" &&
-    typeof invoice.subtotal === "number" &&
-    typeof invoice.gstAmount === "number" &&
-    typeof invoice.totalAmount === "number" &&
-    (invoice.cassReconciliationStatus === "RECONCILED" ||
-      invoice.cassReconciliationStatus === "PENDING_MATCH" ||
-      invoice.cassReconciliationStatus === "DISCREPANCY") &&
-    (invoice.paymentStatus === "PAID" ||
-      invoice.paymentStatus === "UNPAID" ||
-      invoice.paymentStatus === "PARTIAL")
-  );
+  // Early returns for required fields
+  if (typeof invoice.id !== "string") return false;
+  if (typeof invoice.invoiceNumber !== "string") return false;
+  if (typeof invoice.mawbNumber !== "string") return false;
+  if (typeof invoice.customerName !== "string") return false;
+  // Check numeric fields
+  if (typeof invoice.freightCharges !== "number") return false;
+  if (typeof invoice.fuelSurcharge !== "number") return false;
+  if (typeof invoice.securitySurcharge !== "number") return false;
+  if (typeof invoice.handlingCharges !== "number") return false;
+  if (typeof invoice.subtotal !== "number") return false;
+  if (typeof invoice.gstAmount !== "number") return false;
+  if (typeof invoice.totalAmount !== "number") return false;
+  // Check status enums
+  if (
+    invoice.cassReconciliationStatus !== "RECONCILED" &&
+    invoice.cassReconciliationStatus !== "PENDING_MATCH" &&
+    invoice.cassReconciliationStatus !== "DISCREPANCY"
+  )
+    return false;
+  if (
+    invoice.paymentStatus !== "PAID" &&
+    invoice.paymentStatus !== "UNPAID" &&
+    invoice.paymentStatus !== "PARTIAL"
+  )
+    return false;
+  return true;
 };
 
 const DEMO_USER_IDS = new Set(["usr-admin", "usr-1", "usr-2", "usr-3"]);
@@ -243,23 +250,33 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    try {
-      localStorage.setItem("iata_billing_invoices", JSON.stringify(invoices));
-    } catch (error) {
-      console.error("Invoice save error", error);
-    }
-  }, [invoices]);
+    let cancelled = false;
+    (async () => {
+      try {
+        // Debounced localStorage save - only write if content actually changed
+        const invoicesJson = JSON.stringify(invoices);
+        const configJson = JSON.stringify(invoiceConfiguration);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        "iata_invoice_configuration",
-        JSON.stringify(invoiceConfiguration),
-      );
-    } catch (error) {
-      console.error("Invoice configuration save error", error);
-    }
-  }, [invoiceConfiguration]);
+        // Use a single write effect with stable references
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.setItem("iata_billing_invoices", invoicesJson);
+            localStorage.setItem(
+              "iata_invoice_configuration",
+              configJson,
+            );
+          } catch (error) {
+            console.error("Invoice save error", error);
+          }
+        }
+      } catch (error) {
+        console.error("Invoice save error", error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [invoices, invoiceConfiguration]);
 
   const showToast = (
     message: string,
@@ -1024,6 +1041,13 @@ ${hawbLines}`;
       return;
     }
 
+    // Pre-compute MAWB lookup map for O(1) access instead of O(n) searches
+    const mawbMap = useMemo(() => {
+      const map: Record<string, MawbItem> = {};
+      mawbs.forEach((m) => { map[m.mawbNumber] = m; });
+      return map;
+    }, [mawbs]);
+
     const references = draft.shipmentDetails;
     const eligibleStatuses =
       invoiceBillingTrigger === "DEPARTED"
@@ -1032,9 +1056,7 @@ ${hawbLines}`;
           ? ["MANIFESTED", "DEPARTED"]
           : ["ISSUED", "MANIFESTED", "DEPARTED"];
     const hasInvalidShipment = references.some((reference) => {
-      const mawb = mawbs.find(
-        (item) => item.mawbNumber === reference.mawbNumber,
-      );
+      const mawb = mawbMap[reference.mawbNumber];
       if (!mawb || !eligibleStatuses.includes(mawb.status)) return true;
       if (reference.hawbNumber) {
         const hawb = mawb.hawbs.find(
@@ -1057,19 +1079,26 @@ ${hawbLines}`;
             : mawb.shipperName;
       return expectedCustomer !== draft.customerName;
     });
-    const alreadyBilled = references.some((reference) =>
-      invoices.some((invoice) => {
-        if (!invoice.shipmentDetails?.length)
-          return invoice.mawbNumber === reference.mawbNumber;
-        return invoice.shipmentDetails.some(
-          (billed) =>
-            billed.mawbNumber === reference.mawbNumber &&
-            (billed.reference === reference.reference ||
-              billed.reference === `MAWB:${reference.mawbNumber}` ||
-              !reference.hawbNumber),
-        );
-      }),
-    );
+    // Pre-compute invoice lookup maps for O(1) access
+    const invoiceMap = useMemo(() => {
+      const map: Record<string, CassInvoice> = {};
+      invoices.forEach((inv) => { map[inv.mawbNumber] = inv; });
+      return map;
+    }, [invoices]);
+
+    const alreadyBilled = references.some((reference) => {
+      const existingInvoice = invoiceMap[reference.mawbNumber];
+      if (!existingInvoice) return false;
+      if (!existingInvoice.shipmentDetails?.length)
+        return existingInvoice.mawbNumber === reference.mawbNumber;
+      return existingInvoice.shipmentDetails.some(
+        (billed) =>
+          billed.mawbNumber === reference.mawbNumber &&
+          (billed.reference === reference.reference ||
+            billed.reference === `MAWB:${reference.mawbNumber}` ||
+            !reference.hawbNumber),
+      );
+    });
     if (hasInvalidShipment || alreadyBilled) {
       showToast(
         "One or more selected shipments are ineligible or already billed. Refresh the invoice draft and try again.",
