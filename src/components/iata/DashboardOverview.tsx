@@ -65,23 +65,49 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   const mawbs = dbMawbs ?? propMawbs;
   const bookings = dbBookings ?? propBookings;
 
-  const availableStock = stock.filter((s) => s.status === "AVAILABLE").length;
-  const activePrefixes = Array.from(
-    new Set(
-      stock.filter((s) => s.status === "AVAILABLE").map((s) => s.airlinePrefix),
-    ),
-  );
-  const issuedAwbs = mawbs.length;
-  const manifestedAwbs = mawbs.filter(
-    (m) =>
-      m.status === "MANIFESTED" ||
-      m.status === "DEPARTED" ||
-      m.status === "ARRIVED",
-  ).length;
-  const totalWeightKg = mawbs.reduce(
-    (acc, curr) => acc + (curr.grossWeightKg || 0),
-    0,
-  );
+  // Single-pass computation: count available, collect airline prefixes, and compute MAWB stats
+  const {
+    availableStock,
+    activePrefixes,
+    totalWeightKg,
+    issuedAwbs,
+    manifestedAwbs,
+    departedAwbs,
+    arrivedDeliveredAwbs,
+  } = useMemo(() => {
+    let available = 0;
+    const prefixes = new Set<string>();
+    let totalWeight = 0;
+    let issued = 0;
+    let manifested = 0;
+    let departed = 0;
+    let arrivedDelivered = 0;
+
+    stock.forEach((s) => {
+      if (s.status === "AVAILABLE") {
+        available++;
+        prefixes.add(s.airlinePrefix);
+      }
+    });
+
+    mawbs.forEach((m) => {
+      totalWeight += m.grossWeightKg || 0;
+      if (m.status === "ISSUED") issued++;
+      if (m.status === "MANIFESTED" || m.status === "DEPARTED" || m.status === "ARRIVED") manifested++;
+      if (m.status === "DEPARTED") departed++;
+      if (m.status === "ARRIVED" || m.status === "DELIVERED") arrivedDelivered++;
+    });
+
+    return {
+      availableStock: available,
+      activePrefixes: Array.from(prefixes),
+      totalWeightKg: totalWeight,
+      issuedAwbs: issued,
+      manifestedAwbs: manifested,
+      departedAwbs: departed,
+      arrivedDeliveredAwbs: arrivedDelivered,
+    };
+  }, [stock, mawbs]);
 
   const statusSteps = [
     {
@@ -106,14 +132,12 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     },
     {
       label: "Departed / In-Transit",
-      count: mawbs.filter((m) => m.status === "DEPARTED").length,
+      count: departedAwbs,
       desc: "Carrier uplifted",
     },
     {
       label: "Arrived / Delivered",
-      count: mawbs.filter(
-        (m) => m.status === "ARRIVED" || m.status === "DELIVERED",
-      ).length,
+      count: arrivedDeliveredAwbs,
       desc: "Final consignee POD",
     },
   ];
