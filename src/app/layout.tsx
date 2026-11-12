@@ -17,7 +17,7 @@ const lato = Lato({
 });
 
 export const metadata: Metadata = {
-  title: "ITA — Interface Management Platform",
+  title: "IATA — Interface Management Platform",
   description: "Modern web-based interface and system integration management platform",
 };
 
