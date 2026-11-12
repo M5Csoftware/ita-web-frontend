@@ -970,13 +970,126 @@ export function MawbSheet({
                 </div>
 
                 <div className="w-[62%] flex flex-col justify-between">
-                  <div className="border-b border-black p-1.5 min-h-[34px]">
-                    <div className="text-[7px] text-neutral-800 leading-none">
+                  <div className="border-b border-black min-h-[34px]">
+                    <div className="text-[7px] text-neutral-800 leading-none px-1.5 pt-1">
                       Other Charges
                     </div>
-                    <div className="font-bold text-[8px] tracking-wide mt-1 pl-1">
-                      {data.charges.otherChargesBreakdown}
+
+                    {/* IATA-style header row */}
+                    <div className="grid grid-cols-[24px_1.6fr_1fr_1fr_0.8fr_1fr_0.9fr] text-[5.5px] font-bold uppercase tracking-wide border-y border-black mt-0.5">
+                      <div className="border-r border-black text-center py-0.5">
+                        #
+                      </div>
+                      <div className="border-r border-black px-1 py-0.5">
+                        Charge
+                      </div>
+                      <div className="border-r border-black px-1 py-0.5">
+                        Basis
+                      </div>
+                      <div className="border-r border-black px-1 py-0.5 text-right">
+                        Rate
+                      </div>
+                      <div className="border-r border-black px-1 py-0.5 text-right">
+                        Amount
+                      </div>
+                      <div className="border-r border-black px-1 py-0.5">
+                        Due to
+                      </div>
+                      <div className="px-1 py-0.5">Pay at</div>
                     </div>
+
+                    {/* Rows */}
+                    <div className="text-[6.5px] leading-[1.15]">
+                      {(data as any).otherCharges &&
+                      (data as any).otherCharges.length > 0 ? (
+                        (data as any).otherCharges.map(
+                          (line: any, idx: number) => (
+                            <div
+                              key={line.id || idx}
+                              className="grid grid-cols-[24px_1.6fr_1fr_1fr_0.8fr_1fr_0.9fr] border-b border-black last:border-b-0"
+                            >
+                              <div className="border-r border-black text-center py-0.5 font-mono">
+                                {idx + 1}
+                              </div>
+                              <div className="border-r border-black px-1 py-0.5 truncate">
+                                {line.charge || ""}
+                              </div>
+                              <div className="border-r border-black px-1 py-0.5 truncate">
+                                {line.basis || ""}
+                              </div>
+                              <div className="border-r border-black px-1 py-0.5 text-right font-mono">
+                                {line.rate !== "" && line.rate !== undefined
+                                  ? fmt(line.rate)
+                                  : ""}
+                              </div>
+                              <div className="border-r border-black px-1 py-0.5 text-right font-mono font-bold">
+                                {line.amount !== "" && line.amount !== undefined
+                                  ? fmt(line.amount)
+                                  : ""}
+                              </div>
+                              <div className="border-r border-black px-1 py-0.5 truncate">
+                                {line.dueTo || ""}
+                              </div>
+                              <div className="px-1 py-0.5 truncate">
+                                {line.payAt || ""}
+                              </div>
+                            </div>
+                          ),
+                        )
+                      ) : (
+                        <div className="grid grid-cols-[24px_1.6fr_1fr_1fr_0.8fr_1fr_0.9fr] border-b border-black">
+                          <div className="border-r border-black text-center py-0.5 font-mono text-neutral-400">
+                            1
+                          </div>
+                          <div className="border-r border-black px-1 py-0.5 text-neutral-400">
+                            —
+                          </div>
+                          <div className="border-r border-black px-1 py-0.5 text-neutral-400">
+                            —
+                          </div>
+                          <div className="border-r border-black px-1 py-0.5 text-right text-neutral-400">
+                            —
+                          </div>
+                          <div className="border-r border-black px-1 py-0.5 text-right text-neutral-400">
+                            —
+                          </div>
+                          <div className="border-r border-black px-1 py-0.5 text-neutral-400">
+                            —
+                          </div>
+                          <div className="px-1 py-0.5 text-neutral-400">—</div>
+                        </div>
+                      )}
+
+                      {/* Empty filler rows to keep the box height consistent (IATA layout) */}
+                      {Array.from({
+                        length: Math.max(
+                          0,
+                          3 - ((data as any).otherCharges?.length || 0),
+                        ),
+                      }).map((_, i) => (
+                        <div
+                          key={`filler-${i}`}
+                          className="grid grid-cols-[24px_1.6fr_1fr_1fr_0.8fr_1fr_0.9fr] border-b border-black last:border-b-0 h-[9px]"
+                        >
+                          <div className="border-r border-black" />
+                          <div className="border-r border-black" />
+                          <div className="border-r border-black" />
+                          <div className="border-r border-black" />
+                          <div className="border-r border-black" />
+                          <div className="border-r border-black" />
+                          <div />
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Fallback breakdown text (kept for compatibility, hidden if rows exist) */}
+                    {(!(data as any).otherCharges ||
+                      (data as any).otherCharges.length === 0) &&
+                      data.charges.otherChargesBreakdown && (
+                        <div className="font-bold text-[7px] tracking-wide px-1.5 py-0.5 border-t border-black">
+                          {data.charges.otherChargesBreakdown}
+                        </div>
+                      )}
                   </div>
 
                   <div className="p-1.5 flex flex-col justify-between min-h-[64px]">
