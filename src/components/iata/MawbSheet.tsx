@@ -149,96 +149,121 @@ export function MawbSheet({
     natureAndQuantity: "",
   };
 
-  const otherChargesList: Array<{
-    label: string;
-    amount: string;
-    detail?: string;
-  }> = (() => {
-    const result: Array<{
-      label: string;
-      amount: string;
-      detail?: string;
-    }> = [];
-
+  const otherChargesFormattedText: string = (() => {
     // 1. First extract from structured otherCharges if present
     const structured = (data as any).otherCharges;
     if (Array.isArray(structured) && structured.length > 0) {
-      for (const line of structured) {
-        if (!line) continue;
-        const charge = String(line.charge || "").trim();
-        const hasCharge = charge !== "" && charge !== "—";
-        const hasAmount =
-          line.amount !== "" &&
-          line.amount !== undefined &&
-          line.amount !== null &&
-          line.amount !== "—";
-
-        if (hasCharge || hasAmount) {
-          const details: string[] = [];
-          if (line.dueTo) details.push(`Due ${line.dueTo}`);
-          if (line.payAt) details.push(line.payAt);
-          if (line.basis && line.basis !== "Flat") details.push(line.basis);
-
-          result.push({
-            label: hasCharge ? charge : "Other Charge",
-            amount: fmt(line.amount),
-            detail: details.join(", "),
-          });
-        }
+      const valid = structured
+        .filter((line: any) => {
+          if (!line) return false;
+          const charge = String(line.charge || "").trim();
+          const amt = Number(line.amount);
+          return (charge !== "" && charge !== "—") || (!isNaN(amt) && amt > 0);
+        })
+        .map((line: any) => {
+          const code = String(line.charge || "CHG").trim().toUpperCase();
+          const num = Number(line.amount);
+          const amtStr =
+            !isNaN(num) && line.amount !== "" && line.amount !== null
+              ? num.toFixed(2)
+              : String(line.amount || "0.00").trim();
+          return `${code}-${amtStr}`;
+        });
+      if (valid.length > 0) {
+        return valid.join(", ");
       }
     }
 
-    if (result.length > 0) return result;
-
-    // 2. Fallback to otherChargesBreakdown string e.g. "FSC: 29076.00  SSC: 10573.00"
+    // 2. Fallback to otherChargesBreakdown string e.g. "UEC-1300.00, MMC-980.00, SSC-19500.00" or "FSC: 29076.00  SSC: 10573.00"
     const rawBreakdown = data.charges.otherChargesBreakdown?.trim();
     if (rawBreakdown) {
-      const parts = rawBreakdown.split(/(?:\r?\n|;|\s{2,})/);
-      for (const part of parts) {
-        const trimmed = part.trim();
-        if (!trimmed) continue;
-        const colonIdx = trimmed.indexOf(":");
-        if (colonIdx !== -1) {
-          const label = trimmed.slice(0, colonIdx).trim();
-          const rawAmt = trimmed.slice(colonIdx + 1).trim();
-          result.push({
-            label,
-            amount: fmt(rawAmt),
-          });
-        } else {
-          result.push({
-            label: trimmed,
-            amount: "",
-          });
+      if (rawBreakdown.includes(":")) {
+        const parts = rawBreakdown.split(/(?:\r?\n|;|\s{2,}|,)/);
+        const converted: string[] = [];
+        for (const part of parts) {
+          const trimmed = part.trim();
+          if (!trimmed) continue;
+          const colonIdx = trimmed.indexOf(":");
+          if (colonIdx !== -1) {
+            const label = trimmed.slice(0, colonIdx).trim().toUpperCase();
+            const rawAmt = trimmed.slice(colonIdx + 1).trim().replace(/,/g, "");
+            const num = Number(rawAmt);
+            const amtStr = !isNaN(num) ? num.toFixed(2) : rawAmt;
+            converted.push(`${label}-${amtStr}`);
+          } else {
+            converted.push(trimmed.toUpperCase());
+          }
+        }
+        if (converted.length > 0) {
+          return converted.join(", ");
         }
       }
+      return rawBreakdown.toUpperCase();
     }
 
-    if (result.length > 0) return result;
-
     // 3. Fallback to carrier / agent charges prepaid
+    const fallbacks: string[] = [];
     if (
       data.charges.carrierChargesPrepaid &&
       Number(data.charges.carrierChargesPrepaid) > 0
     ) {
-      result.push({
-        label: "Carrier Charges",
-        amount: fmt(data.charges.carrierChargesPrepaid),
-        detail: "Prepaid",
-      });
+      fallbacks.push(
+        `CARRIER-${Number(data.charges.carrierChargesPrepaid).toFixed(2)}`,
+      );
     }
     if (
       data.charges.agentChargesPrepaid &&
       Number(data.charges.agentChargesPrepaid) > 0
     ) {
-      result.push({
-        label: "Agent Charges",
-        amount: fmt(data.charges.agentChargesPrepaid),
-        detail: "Prepaid",
-      });
+      fallbacks.push(
+        `AGENT-${Number(data.charges.agentChargesPrepaid).toFixed(2)}`,
+      );
+    }
+    if (fallbacks.length > 0) {
+      return fallbacks.join(", ");
     }
 
-    return result;
+    return "";
+  })();
+
+  const displayCarrierChargesPrepaid = (() => {
+    const direct = data.charges.carrierChargesPrepaid;
+    if (
+      direct !== undefined &&
+      direct !== null &&
+      direct !== "" &&
+      Number(direct) > 0
+    ) {
+      return direct;
+    }
+    const structured = (data as any).otherCharges;
+    if (Array.isArray(structured) && structured.length > 0) {
+      const sum = structured
+        .filter((l: any) => l.dueTo === "Carrier" && l.payAt === "Prepaid")
+        .reduce((acc: number, l: any) => acc + (Number(l.amount) || 0), 0);
+      if (sum > 0) return sum;
+    }
+    return direct;
+  })();
+
+  const displayAgentChargesPrepaid = (() => {
+    const direct = data.charges.agentChargesPrepaid;
+    if (
+      direct !== undefined &&
+      direct !== null &&
+      direct !== "" &&
+      Number(direct) > 0
+    ) {
+      return direct;
+    }
+    const structured = (data as any).otherCharges;
+    if (Array.isArray(structured) && structured.length > 0) {
+      const sum = structured
+        .filter((l: any) => l.dueTo === "Agent" && l.payAt === "Prepaid")
+        .reduce((acc: number, l: any) => acc + (Number(l.amount) || 0), 0);
+      if (sum > 0) return sum;
+    }
+    return direct;
   })();
 
   return (
@@ -786,7 +811,45 @@ export function MawbSheet({
                       </span>
                     </div>
                     <div className="pt-2 pl-2 pr-1 text-[6.5px] font-bold leading-[1.28] whitespace-pre-line uppercase text-black">
-                      {item.natureAndQuantity}
+                      {(() => {
+                        const raw = item.natureAndQuantity || "";
+                        if (/\bDIM\s*:/i.test(raw)) {
+                          return raw;
+                        }
+                        if (item.dimensions && item.dimensions.length > 0) {
+                          const valid = item.dimensions.filter(
+                            (d) =>
+                              Number(d.lengthCm) > 0 &&
+                              Number(d.widthCm) > 0 &&
+                              Number(d.heightCm) > 0 &&
+                              Number(d.pieces) > 0,
+                          );
+                          if (valid.length > 0) {
+                            const parts = valid.map(
+                              (d) =>
+                                `${d.lengthCm}X${d.widthCm}X${d.heightCm}/${d.pieces}`,
+                            );
+                            const totalVol = valid.reduce(
+                              (acc, d) =>
+                                acc +
+                                (Number(d.lengthCm) *
+                                  Number(d.widthCm) *
+                                  Number(d.heightCm) *
+                                  Number(d.pieces)) /
+                                  6000,
+                              0,
+                            );
+                            const roundedVol = item.volumetricWeightKg
+                              ? Math.round(Number(item.volumetricWeightKg))
+                              : Math.round(totalVol);
+                            const dimBlock = `DIM:${parts.join(" , ")} CMT\nVOL WT: ${roundedVol} KGS`;
+                            return raw.trim()
+                              ? `${raw.trim()}\n\n${dimBlock}`
+                              : dimBlock;
+                          }
+                        }
+                        return raw;
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -983,9 +1046,9 @@ export function MawbSheet({
                     <div className="flex min-h-[14px]">
                       <div className="w-1/2 border-r border-black p-1 flex items-end justify-end relative">
                         <span className="font-bold text-[8px]">
-                          {fmt(data.charges.agentChargesPrepaid)}
+                          {fmt(displayAgentChargesPrepaid)}
                         </span>
-                        {!data.charges.agentChargesPrepaid && <DiagonalSlash />}
+                        {!displayAgentChargesPrepaid && <DiagonalSlash />}
                       </div>
                       <div className="w-1/2 p-1 flex items-end justify-end relative">
                         <span className="font-bold text-[8px]">
@@ -1005,7 +1068,7 @@ export function MawbSheet({
                     <div className="flex min-h-[16px]">
                       <div className="w-1/2 border-r border-black p-1 flex items-end justify-end relative">
                         <span className="font-bold text-[8.5px]">
-                          {fmt(data.charges.carrierChargesPrepaid)}
+                          {fmt(displayCarrierChargesPrepaid)}
                         </span>
                       </div>
                       <div className="w-1/2 p-1 flex items-end justify-end relative">
@@ -1067,30 +1130,9 @@ export function MawbSheet({
                       Other Charges
                     </div>
 
-                    {otherChargesList.length > 0 ? (
-                      <div className="flex flex-col gap-0.5 px-0.5">
-                        {otherChargesList.map((item, idx) => (
-                          <div
-                            key={idx}
-                            className="flex items-baseline justify-between text-[7.5px] font-mono leading-tight"
-                          >
-                            <div className="flex items-baseline gap-1.5 min-w-0">
-                              <span className="font-bold text-neutral-900 uppercase">
-                                • {item.label}:
-                              </span>
-                              {item.detail && (
-                                <span className="text-[6.5px] text-neutral-600 font-sans">
-                                  ({item.detail})
-                                </span>
-                              )}
-                            </div>
-                            {item.amount ? (
-                              <span className="font-bold text-neutral-900 font-mono text-right pl-3 shrink-0">
-                                {item.amount}
-                              </span>
-                            ) : null}
-                          </div>
-                        ))}
+                    {otherChargesFormattedText ? (
+                      <div className="text-[8.5px] font-bold text-black uppercase tracking-tight leading-normal px-0.5 pt-0.5">
+                        {otherChargesFormattedText}
                       </div>
                     ) : (
                       <div className="text-[7.5px] font-mono text-neutral-400 italic px-0.5">
