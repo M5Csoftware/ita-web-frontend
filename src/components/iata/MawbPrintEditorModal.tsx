@@ -20,8 +20,13 @@ import {
   FileEdit,
   Loader2,
   Sparkles,
+  Calendar,
+  Box,
 } from "lucide-react";
 import { MawbData, MawbItemLine, MawbRouteFlight } from "@/types/mawb";
+import { Airline, DocketItem } from "@/types/iata";
+import { IATA_AIRLINES } from "@/lib/iata-data";
+import { API_BASE } from "@/lib/api";
 import { MawbSheet } from "./MawbSheet";
 import { downloadMawbPdf, printMawbPdf } from "@/lib/mawb-pdf-export";
 
@@ -57,6 +62,33 @@ type OtherChargeLine = {
   payAt: "Prepaid" | "Collect";
 };
 
+/** Normalizes diverse date formats (YYYY-MM-DD, DD.MM.YYYY, DD/MM/YYYY, ISO) into YYYY-MM-DD for native HTML5 date input */
+function toDateInputValue(val?: string): string {
+  if (!val) return "";
+  const trimmed = val.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return trimmed;
+  }
+  const ymdMatch = trimmed.match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})$/);
+  if (ymdMatch) {
+    const [, y, m, d] = ymdMatch;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  const dmyMatch = trimmed.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+  if (dmyMatch) {
+    const [, d, m, y] = dmyMatch;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  const d = new Date(trimmed);
+  if (!isNaN(d.getTime())) {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+  return "";
+}
+
 export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
   isOpen,
   onClose,
@@ -75,10 +107,174 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
   >("both");
   const [modalZoom, setModalZoom] = useState<number>(0.9);
   const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [airlines, setAirlines] = useState<Airline[]>(IATA_AIRLINES);
+  const [dockets, setDockets] = useState<DocketItem[]>([]);
+  const [lengthCm, setLengthCm] = useState<string>("");
+  const [breadthCm, setBreadthCm] = useState<string>("");
+  const [heightCm, setHeightCm] = useState<string>("");
+  const [volumetricWeightKg, setVolumetricWeightKg] = useState<string>("");
+  const [fetchedFromDocketNo, setFetchedFromDocketNo] = useState<string | null>(
+    null,
+  );
+
+  // Load dockets to fetch cargo dimensions by AWB serial number
+  useEffect(() => {
+    let isMounted = true;
+    async function loadDockets() {
+      try {
+        const token =
+          typeof window !== "undefined"
+            ? localStorage.getItem("token") || ""
+            : "";
+        const res = await fetch(`${API_BASE}/api/dockets`, {
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        });
+        if (res.ok) {
+          const json = await res.json();
+          const list: DocketItem[] = Array.isArray(json?.dockets)
+            ? json.dockets
+            : [];
+          if (isMounted && list.length > 0) {
+            setDockets(list);
+          }
+        }
+      } catch {
+        // Fallback
+      }
+    }
+    loadDockets();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Fetch dimensions from matching docket by AWB serial / number
+  useEffect(() => {
+    const cleanSerial = (data.awbSerial || "").replace(/\D/g, "");
+    const cleanMawb = (mawbNumber || "").replace(/\D/g, "");
+
+    // 1. Try to find matching docket by assigned AWB
+    if (dockets.length > 0) {
+      const match = dockets.find((d) => {
+        if (!d.assignedAwb) return false;
+        const dDigits = d.assignedAwb.replace(/\D/g, "");
+        if (
+          cleanSerial &&
+          cleanSerial.length >= 6 &&
+          dDigits.includes(cleanSerial)
+        ) {
+          return true;
+        }
+        if (
+          cleanMawb &&
+          cleanMawb.length >= 6 &&
+          (dDigits.includes(cleanMawb) || cleanMawb.includes(dDigits))
+        ) {
+          return true;
+        }
+        return false;
+      });
+
+      if (match) {
+        setFetchedFromDocketNo(match.docketNumber);
+        const dim = match.dimensions?.[0];
+        if (dim) {
+          if (dim.lengthCm) setLengthCm(String(dim.lengthCm));
+          if (dim.widthCm) setBreadthCm(String(dim.widthCm));
+          if (dim.heightCm) setHeightCm(String(dim.heightCm));
+        }
+        if (match.volumetricWeightKg) {
+          setVolumetricWeightKg(String(match.volumetricWeightKg));
+        }
+        return;
+      }
+    }
+
+    // 2. Fallback: Parse dimensions from natureAndQuantity if available (e.g. "DIM: 100x60x50 cm")
+    const nature = data.items[0]?.natureAndQuantity || "";
+    const dimMatch = nature.match(
+      /(?:DIM:?|DIMENSIONS:?)?\s*(\d+(?:\.\d+)?)\s*[xX*]\s*(\d+(?:\.\d+)?)\s*[xX*]\s*(\d+(?:\.\d+)?)/i,
+    );
+    if (dimMatch) {
+      setLengthCm((prev) => prev || dimMatch[1]);
+      setBreadthCm((prev) => prev || dimMatch[2]);
+      setHeightCm((prev) => prev || dimMatch[3]);
+    }
+  }, [dockets, data.awbSerial, mawbNumber, data.items]);
+
+  // Load dynamic airlines from master data
+  useEffect(() => {
+    let isMounted = true;
+    async function loadMasterAirlines() {
+      try {
+        const token =
+          typeof window !== "undefined"
+            ? localStorage.getItem("token") || ""
+            : "";
+        const res = await fetch(`${API_BASE}/api/master/airlines`, {
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        });
+        if (res.ok) {
+          const json = await res.json();
+          const masterList: Airline[] = Array.isArray(json?.airlines)
+            ? json.airlines
+            : [];
+          if (masterList.length > 0 && isMounted) {
+            const masterPrefixes = new Set(masterList.map((a) => a.prefix));
+            const merged = [
+              ...masterList,
+              ...IATA_AIRLINES.filter((a) => !masterPrefixes.has(a.prefix)),
+            ];
+            setAirlines(merged);
+          }
+        }
+      } catch {
+        // Fallback to static IATA_AIRLINES
+      }
+    }
+    loadMasterAirlines();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Helper to match an airline from master data or IATA presets by 3-digit prefix
+  const findAirlineByPrefix = (prefix: string) => {
+    const clean = prefix.replace(/\D/g, "");
+    if (!clean) return null;
+    return (
+      airlines.find(
+        (a) =>
+          a.prefix === clean ||
+          a.prefix === prefix.trim() ||
+          a.prefix.padStart(3, "0") === clean.padStart(3, "0")
+      ) ||
+      IATA_AIRLINES.find(
+        (a) =>
+          a.prefix === clean ||
+          a.prefix === prefix.trim() ||
+          a.prefix.padStart(3, "0") === clean.padStart(3, "0")
+      ) ||
+      null
+    );
+  };
 
   // Sync when initialData or initialViewMode changes
   useEffect(() => {
-    setData(JSON.parse(JSON.stringify(initialData)));
+    const cloned = JSON.parse(JSON.stringify(initialData)) as MawbData;
+    if (!cloned.carrierName && cloned.awbPrefix) {
+      const matched = findAirlineByPrefix(cloned.awbPrefix);
+      if (matched) {
+        cloned.carrierName = matched.name.toUpperCase();
+      }
+    }
+    setData(cloned);
   }, [initialData]);
 
   useEffect(() => {
@@ -97,6 +293,32 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
   // Specific helpers
   const setTopLevel = <K extends keyof MawbData>(key: K, val: MawbData[K]) => {
     updateData((prev) => ({ ...prev, [key]: val }));
+  };
+
+  // Automatically fetch & fill carrier name when AWB prefix changes
+  const handlePrefixChange = (rawVal: string) => {
+    // If full AWB e.g. "077-59066545" was pasted
+    if (rawVal.includes("-")) {
+      const [p, ...rest] = rawVal.split("-");
+      const serial = rest.join("-").trim();
+      const cleanPrefix = p.trim();
+      const matched = findAirlineByPrefix(cleanPrefix);
+      updateData((prev) => ({
+        ...prev,
+        awbPrefix: cleanPrefix,
+        ...(serial ? { awbSerial: serial } : {}),
+        ...(matched ? { carrierName: matched.name.toUpperCase() } : {}),
+      }));
+      return;
+    }
+
+    const cleanPrefix = rawVal.trim();
+    const matched = findAirlineByPrefix(cleanPrefix);
+    updateData((prev) => ({
+      ...prev,
+      awbPrefix: rawVal,
+      ...(matched ? { carrierName: matched.name.toUpperCase() } : {}),
+    }));
   };
 
   const setShipper = (
@@ -245,13 +467,60 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
     }));
   };
 
+  // Toggle "As per discussed" for weight rate
+  const handleToggleAsPerDiscussed = (checked: boolean) => {
+    if (checked) {
+      updateData((prev: any) => {
+        const items = [...prev.items];
+        if (items[0]) {
+          items[0] = {
+            ...items[0],
+            rate: "As per discussed",
+            total: "As per discussed",
+          };
+        }
+        return {
+          ...prev,
+          items,
+          charges: {
+            ...prev.charges,
+            prepaidWeightCharge: "As per discussed",
+          },
+        };
+      });
+    } else {
+      updateData((prev: any) => {
+        const items = [...prev.items];
+        if (items[0]) {
+          items[0] = {
+            ...items[0],
+            rate: "",
+            total: 0,
+          };
+        }
+        return {
+          ...prev,
+          items,
+          charges: {
+            ...prev.charges,
+            prepaidWeightCharge: 0,
+          },
+        };
+      });
+    }
+  };
+
   // Auto-calculate charges helper
   const handleAutoCalculate = () => {
     updateData((prev: any) => {
       const it = prev.items[0] || {};
+      const isAsDiscussed =
+        String(it.rate || "").trim().toLowerCase() === "as per discussed";
       const chgWt = Number(it.chargeableWeight) || Number(it.grossWeight) || 0;
       const rate = Number(it.rate) || 0;
-      const freightTotal = Number((chgWt * rate).toFixed(2));
+      const freightTotal = isAsDiscussed
+        ? "As per discussed"
+        : Number((chgWt * rate).toFixed(2));
 
       const updatedItems = [...prev.items];
       if (updatedItems[0]) {
@@ -281,9 +550,8 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
       const taxPrepaid = Number(prev.charges.taxPrepaid) || 0;
       const valPrepaid = Number(prev.charges.valuationChargePrepaid) || 0;
 
-      const totalPrepaid = Number(
+      const otherPrepaidTotal = Number(
         (
-          freightTotal +
           carrierFromOther +
           agentFromOther +
           carrierPrepaid +
@@ -292,6 +560,12 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
           valPrepaid
         ).toFixed(2),
       );
+
+      const totalPrepaid = isAsDiscussed
+        ? otherPrepaidTotal > 0
+          ? otherPrepaidTotal
+          : "As per discussed"
+        : Number((Number(freightTotal || 0) + otherPrepaidTotal).toFixed(2));
 
       // Auto-generated breakdown string
       const breakdown = otherCharges
@@ -356,13 +630,33 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
   const flight2 = data.routing.flights?.[1] || { flightNo: "", date: "" };
   const otherCharges: OtherChargeLine[] = (data as any).otherCharges || [];
 
+  const isRateAsPerDiscussed =
+    String(primaryItem.rate || "").trim().toLowerCase() === "as per discussed";
+
   const computedWeightCharge = (() => {
+    if (isRateAsPerDiscussed) return "As per discussed";
     const w =
       Number(primaryItem.chargeableWeight) ||
       Number(primaryItem.grossWeight) ||
       0;
     const r = Number(primaryItem.rate) || 0;
     return w && r ? Number((w * r).toFixed(2)) : 0;
+  })();
+
+  const matchedAirline = findAirlineByPrefix(data.awbPrefix || "");
+
+  const calculatedVolWeight = (() => {
+    const l = parseFloat(lengthCm);
+    const b = parseFloat(breadthCm);
+    const h = parseFloat(heightCm);
+    const pcs = parseFloat(String(primaryItem.pieces || 1)) || 1;
+    if (!isNaN(l) && !isNaN(b) && !isNaN(h) && l > 0 && b > 0 && h > 0) {
+      return parseFloat(((l * b * h * pcs) / 6000).toFixed(2));
+    }
+    if (volumetricWeightKg && !isNaN(parseFloat(volumetricWeightKg))) {
+      return parseFloat(volumetricWeightKg);
+    }
+    return null;
   })();
 
   return (
@@ -625,11 +919,21 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                     <label className={FIELD_LABEL}>AWB Prefix</label>
                     <input
                       type="text"
+                      maxLength={7}
                       value={data.awbPrefix || ""}
-                      onChange={(e) => setTopLevel("awbPrefix", e.target.value)}
+                      onChange={(e) => handlePrefixChange(e.target.value)}
                       placeholder="077"
                       className={INPUT_BASE}
+                      list="airline-prefix-options"
+                      autoComplete="off"
                     />
+                    <datalist id="airline-prefix-options">
+                      {airlines.map((a) => (
+                        <option key={a.prefix} value={a.prefix}>
+                          {a.prefix} - {a.name} ({a.code})
+                        </option>
+                      ))}
+                    </datalist>
                   </div>
                   <div className="sm:col-span-2">
                     <label className={FIELD_LABEL}>AWB Serial / Number</label>
@@ -657,7 +961,16 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                   <div>
-                    <label className={FIELD_LABEL}>Carrier Name</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-semibold text-slate-600">
+                        Carrier Name
+                      </label>
+                      {matchedAirline && (
+                        <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                          Auto-fetched: {matchedAirline.name}
+                        </span>
+                      )}
+                    </div>
                     <input
                       type="text"
                       value={data.carrierName || ""}
@@ -861,13 +1174,18 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                     />
                   </div>
                   <div>
-                    <label className={FIELD_LABEL}>Flight 1 Date</label>
+                    <label className={FIELD_LABEL}>
+                      <span className="flex items-center gap-1">
+                        <Calendar className="w-3 h-3 text-[#2C5EAD]" />
+                        Flight 1 Date
+                      </span>
+                    </label>
                     <input
-                      type="text"
-                      value={flight1.date || ""}
+                      type="date"
+                      value={toDateInputValue(flight1.date)}
                       onChange={(e) => setFlight(0, "date", e.target.value)}
-                      placeholder="12.08.2023"
-                      className={INPUT_BASE}
+                      onClick={(e) => e.currentTarget.showPicker?.()}
+                      className={`${INPUT_BASE} cursor-pointer`}
                     />
                   </div>
                   <div>
@@ -881,13 +1199,18 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                     />
                   </div>
                   <div>
-                    <label className={FIELD_LABEL}>Flight 2 Date (Opt)</label>
+                    <label className={FIELD_LABEL}>
+                      <span className="flex items-center gap-1">
+                        <Calendar className="w-3 h-3 text-[#2C5EAD]" />
+                        Flight 2 Date (Opt)
+                      </span>
+                    </label>
                     <input
-                      type="text"
-                      value={flight2.date || ""}
+                      type="date"
+                      value={toDateInputValue(flight2.date)}
                       onChange={(e) => setFlight(1, "date", e.target.value)}
-                      placeholder="13.08.2023"
-                      className={INPUT_BASE}
+                      onClick={(e) => e.currentTarget.showPicker?.()}
+                      className={`${INPUT_BASE} cursor-pointer`}
                     />
                   </div>
                 </div>
@@ -1081,8 +1404,7 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                   <div>
                     <label className={FIELD_LABEL}>Rate / Charge</label>
                     <input
-                      type="number"
-                      step="any"
+                      type="text"
                       value={primaryItem.rate ?? ""}
                       onChange={(e) => setItem(0, "rate", e.target.value)}
                       placeholder="120.00"
@@ -1092,8 +1414,7 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                   <div>
                     <label className={FIELD_LABEL}>Total Weight Charge</label>
                     <input
-                      type="number"
-                      step="any"
+                      type="text"
                       value={primaryItem.total ?? ""}
                       onChange={(e) => setItem(0, "total", e.target.value)}
                       placeholder="27600.00"
@@ -1115,6 +1436,139 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                     placeholder="READY MADE GARMENTS&#10;CONSOL OF 1 HAWB(S): HAWB-DEL-6545-01&#10;DIM: 100x60x50 cm"
                     className={TEXTAREA_BASE}
                   />
+                </div>
+
+                {/* Cargo Dimensions & Volumetric Weight (Calculated / Fetched from Docket) */}
+                <div className="pt-3 mt-1 border-t border-slate-100 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <Box className="w-3.5 h-3.5 text-[#2C5EAD]" />
+                      <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wide">
+                        Cargo Dimensions &amp; Volumetric Weight
+                      </span>
+                    </div>
+                    {fetchedFromDocketNo ? (
+                      <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
+                        ✓ Fetched from Docket {fetchedFromDocketNo}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-slate-400">
+                        Enter dimensions to auto-calculate volume weight
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div>
+                      <label className={FIELD_LABEL}>Length (cm)</label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={lengthCm}
+                        onChange={(e) => setLengthCm(e.target.value)}
+                        placeholder="e.g. 100"
+                        className={`${INPUT_BASE} font-mono`}
+                      />
+                    </div>
+                    <div>
+                      <label className={FIELD_LABEL}>Breadth / Width (cm)</label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={breadthCm}
+                        onChange={(e) => setBreadthCm(e.target.value)}
+                        placeholder="e.g. 60"
+                        className={`${INPUT_BASE} font-mono`}
+                      />
+                    </div>
+                    <div>
+                      <label className={FIELD_LABEL}>Height (cm)</label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={heightCm}
+                        onChange={(e) => setHeightCm(e.target.value)}
+                        placeholder="e.g. 50"
+                        className={`${INPUT_BASE} font-mono`}
+                      />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-[11px] font-semibold text-slate-600 truncate">
+                          Volumetric Wt (kg)
+                        </label>
+                        <span className="text-[9px] text-slate-400 font-mono">
+                          (L×B×H/6000)
+                        </span>
+                      </div>
+                      <input
+                        type="text"
+                        value={
+                          calculatedVolWeight !== null
+                            ? calculatedVolWeight.toFixed(2)
+                            : volumetricWeightKg || ""
+                        }
+                        onChange={(e) => setVolumetricWeightKg(e.target.value)}
+                        placeholder="0.00"
+                        className={`${INPUT_BASE} font-mono font-bold text-[#2C5EAD] bg-blue-50/40`}
+                      />
+                    </div>
+                  </div>
+
+                  {calculatedVolWeight !== null && calculatedVolWeight > 0 && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
+                      <div className="text-[11px] text-slate-500 font-mono">
+                        Formula: ({lengthCm || 0} × {breadthCm || 0} × {heightCm || 0} cm)
+                        {Number(primaryItem.pieces || 1) > 1
+                          ? ` × ${primaryItem.pieces} pcs`
+                          : ""}{" "}
+                        / 6000 ={" "}
+                        <span className="font-bold text-slate-800">
+                          {calculatedVolWeight.toFixed(2)} kg
+                        </span>
+                        {Number(primaryItem.grossWeight || 0) > 0 && (
+                          <span className="ml-2 text-slate-400">
+                            (Actual: {primaryItem.grossWeight} kg)
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (calculatedVolWeight) {
+                              setItem(
+                                0,
+                                "chargeableWeight",
+                                calculatedVolWeight.toFixed(2),
+                              );
+                            }
+                          }}
+                          className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-[#2C5EAD] border border-blue-200 rounded-md text-[11px] font-semibold transition-colors cursor-pointer"
+                          title="Apply this calculated volumetric weight as the Chargeable Weight"
+                        >
+                          Apply as Chargeable Wt
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const dimStr = `DIM: ${lengthCm}x${breadthCm}x${heightCm} cm`;
+                            const current = primaryItem.natureAndQuantity || "";
+                            if (!current.includes(dimStr)) {
+                              const updated = current
+                                ? `${current}\n${dimStr}`
+                                : dimStr;
+                              setItem(0, "natureAndQuantity", updated);
+                            }
+                          }}
+                          className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-md text-[11px] font-semibold transition-colors cursor-pointer"
+                          title="Append dimension text to Nature and Quantity of Goods"
+                        >
+                          Add DIM to Goods
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1156,12 +1610,27 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                   <div>
                     <label className={FIELD_LABEL}>Weight Rate per kg</label>
                     <input
-                      type="number"
-                      step="any"
+                      type="text"
                       value={primaryItem.rate ?? ""}
                       onChange={(e) => setItem(0, "rate", e.target.value)}
-                      className={`${INPUT_BASE} text-center`}
+                      placeholder={isRateAsPerDiscussed ? "As per discussed" : "0.00"}
+                      className={`${INPUT_BASE} text-center ${
+                        isRateAsPerDiscussed
+                          ? "bg-blue-50/60 font-semibold text-[#2C5EAD]"
+                          : ""
+                      }`}
                     />
+                    <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-[10.5px] text-slate-600 hover:text-[#2C5EAD] font-medium mt-1.5">
+                      <input
+                        type="checkbox"
+                        checked={isRateAsPerDiscussed}
+                        onChange={(e) =>
+                          handleToggleAsPerDiscussed(e.target.checked)
+                        }
+                        className="w-3.5 h-3.5 text-[#2C5EAD] rounded border-slate-300 focus:ring-[#2C5EAD]/25 cursor-pointer"
+                      />
+                      <span>As per discussed</span>
+                    </label>
                   </div>
                   <div>
                     <label className={FIELD_LABEL}>
@@ -1171,7 +1640,10 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                       type="text"
                       readOnly
                       value={
-                        computedWeightCharge
+                        isRateAsPerDiscussed
+                          ? "As per discussed"
+                          : typeof computedWeightCharge === "number" &&
+                            computedWeightCharge > 0
                           ? computedWeightCharge.toFixed(2)
                           : ""
                       }
@@ -1314,8 +1786,7 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                   <div>
                     <label className={FIELD_LABEL}>Weight Charge Prepaid</label>
                     <input
-                      type="number"
-                      step="any"
+                      type="text"
                       value={data.charges.prepaidWeightCharge ?? ""}
                       onChange={(e) =>
                         setCharges("prepaidWeightCharge", e.target.value)
@@ -1443,15 +1914,18 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
 
                 <div className="grid grid-cols-2 gap-3 pt-1">
                   <div>
-                    <label className={FIELD_LABEL}>Executed on (Date)</label>
+                    <label className={FIELD_LABEL}>
+                      <span className="flex items-center gap-1">
+                        <Calendar className="w-3 h-3 text-[#2C5EAD]" />
+                        Executed on (Date)
+                      </span>
+                    </label>
                     <input
-                      type="text"
-                      value={data.execution.executedDate || ""}
-                      onChange={(e) =>
-                        setExecution("executedDate", e.target.value)
-                      }
-                      placeholder="12/08/2023"
-                      className={INPUT_BASE}
+                      type="date"
+                      value={toDateInputValue(data.execution.executedDate)}
+                      onChange={(e) => setExecution("executedDate", e.target.value)}
+                      onClick={(e) => e.currentTarget.showPicker?.()}
+                      className={`${INPUT_BASE} cursor-pointer`}
                     />
                   </div>
                   <div>
