@@ -149,6 +149,98 @@ export function MawbSheet({
     natureAndQuantity: "",
   };
 
+  const otherChargesList: Array<{
+    label: string;
+    amount: string;
+    detail?: string;
+  }> = (() => {
+    const result: Array<{
+      label: string;
+      amount: string;
+      detail?: string;
+    }> = [];
+
+    // 1. First extract from structured otherCharges if present
+    const structured = (data as any).otherCharges;
+    if (Array.isArray(structured) && structured.length > 0) {
+      for (const line of structured) {
+        if (!line) continue;
+        const charge = String(line.charge || "").trim();
+        const hasCharge = charge !== "" && charge !== "—";
+        const hasAmount =
+          line.amount !== "" &&
+          line.amount !== undefined &&
+          line.amount !== null &&
+          line.amount !== "—";
+
+        if (hasCharge || hasAmount) {
+          const details: string[] = [];
+          if (line.dueTo) details.push(`Due ${line.dueTo}`);
+          if (line.payAt) details.push(line.payAt);
+          if (line.basis && line.basis !== "Flat") details.push(line.basis);
+
+          result.push({
+            label: hasCharge ? charge : "Other Charge",
+            amount: fmt(line.amount),
+            detail: details.join(", "),
+          });
+        }
+      }
+    }
+
+    if (result.length > 0) return result;
+
+    // 2. Fallback to otherChargesBreakdown string e.g. "FSC: 29076.00  SSC: 10573.00"
+    const rawBreakdown = data.charges.otherChargesBreakdown?.trim();
+    if (rawBreakdown) {
+      const parts = rawBreakdown.split(/(?:\r?\n|;|\s{2,})/);
+      for (const part of parts) {
+        const trimmed = part.trim();
+        if (!trimmed) continue;
+        const colonIdx = trimmed.indexOf(":");
+        if (colonIdx !== -1) {
+          const label = trimmed.slice(0, colonIdx).trim();
+          const rawAmt = trimmed.slice(colonIdx + 1).trim();
+          result.push({
+            label,
+            amount: fmt(rawAmt),
+          });
+        } else {
+          result.push({
+            label: trimmed,
+            amount: "",
+          });
+        }
+      }
+    }
+
+    if (result.length > 0) return result;
+
+    // 3. Fallback to carrier / agent charges prepaid
+    if (
+      data.charges.carrierChargesPrepaid &&
+      Number(data.charges.carrierChargesPrepaid) > 0
+    ) {
+      result.push({
+        label: "Carrier Charges",
+        amount: fmt(data.charges.carrierChargesPrepaid),
+        detail: "Prepaid",
+      });
+    }
+    if (
+      data.charges.agentChargesPrepaid &&
+      Number(data.charges.agentChargesPrepaid) > 0
+    ) {
+      result.push({
+        label: "Agent Charges",
+        amount: fmt(data.charges.agentChargesPrepaid),
+        detail: "Prepaid",
+      });
+    }
+
+    return result;
+  })();
+
   return (
     <div
       style={{
@@ -970,126 +1062,41 @@ export function MawbSheet({
                 </div>
 
                 <div className="w-[62%] flex flex-col justify-between">
-                  <div className="border-b border-black min-h-[34px]">
-                    <div className="text-[7px] text-neutral-800 leading-none px-1.5 pt-1">
+                  <div className="border-b border-black min-h-[46px] p-1.5 flex flex-col justify-start">
+                    <div className="text-[7px] text-neutral-800 leading-none font-bold uppercase tracking-wider mb-1">
                       Other Charges
                     </div>
 
-                    {/* IATA-style header row */}
-                    <div className="grid grid-cols-[24px_1.6fr_1fr_1fr_0.8fr_1fr_0.9fr] text-[5.5px] font-bold uppercase tracking-wide border-y border-black mt-0.5">
-                      <div className="border-r border-black text-center py-0.5">
-                        #
-                      </div>
-                      <div className="border-r border-black px-1 py-0.5">
-                        Charge
-                      </div>
-                      <div className="border-r border-black px-1 py-0.5">
-                        Basis
-                      </div>
-                      <div className="border-r border-black px-1 py-0.5 text-right">
-                        Rate
-                      </div>
-                      <div className="border-r border-black px-1 py-0.5 text-right">
-                        Amount
-                      </div>
-                      <div className="border-r border-black px-1 py-0.5">
-                        Due to
-                      </div>
-                      <div className="px-1 py-0.5">Pay at</div>
-                    </div>
-
-                    {/* Rows */}
-                    <div className="text-[6.5px] leading-[1.15]">
-                      {(data as any).otherCharges &&
-                      (data as any).otherCharges.length > 0 ? (
-                        (data as any).otherCharges.map(
-                          (line: any, idx: number) => (
-                            <div
-                              key={line.id || idx}
-                              className="grid grid-cols-[24px_1.6fr_1fr_1fr_0.8fr_1fr_0.9fr] border-b border-black last:border-b-0"
-                            >
-                              <div className="border-r border-black text-center py-0.5 font-mono">
-                                {idx + 1}
-                              </div>
-                              <div className="border-r border-black px-1 py-0.5 truncate">
-                                {line.charge || ""}
-                              </div>
-                              <div className="border-r border-black px-1 py-0.5 truncate">
-                                {line.basis || ""}
-                              </div>
-                              <div className="border-r border-black px-1 py-0.5 text-right font-mono">
-                                {line.rate !== "" && line.rate !== undefined
-                                  ? fmt(line.rate)
-                                  : ""}
-                              </div>
-                              <div className="border-r border-black px-1 py-0.5 text-right font-mono font-bold">
-                                {line.amount !== "" && line.amount !== undefined
-                                  ? fmt(line.amount)
-                                  : ""}
-                              </div>
-                              <div className="border-r border-black px-1 py-0.5 truncate">
-                                {line.dueTo || ""}
-                              </div>
-                              <div className="px-1 py-0.5 truncate">
-                                {line.payAt || ""}
-                              </div>
+                    {otherChargesList.length > 0 ? (
+                      <div className="flex flex-col gap-0.5 px-0.5">
+                        {otherChargesList.map((item, idx) => (
+                          <div
+                            key={idx}
+                            className="flex items-baseline justify-between text-[7.5px] font-mono leading-tight"
+                          >
+                            <div className="flex items-baseline gap-1.5 min-w-0">
+                              <span className="font-bold text-neutral-900 uppercase">
+                                • {item.label}:
+                              </span>
+                              {item.detail && (
+                                <span className="text-[6.5px] text-neutral-600 font-sans">
+                                  ({item.detail})
+                                </span>
+                              )}
                             </div>
-                          ),
-                        )
-                      ) : (
-                        <div className="grid grid-cols-[24px_1.6fr_1fr_1fr_0.8fr_1fr_0.9fr] border-b border-black">
-                          <div className="border-r border-black text-center py-0.5 font-mono text-neutral-400">
-                            1
+                            {item.amount ? (
+                              <span className="font-bold text-neutral-900 font-mono text-right pl-3 shrink-0">
+                                {item.amount}
+                              </span>
+                            ) : null}
                           </div>
-                          <div className="border-r border-black px-1 py-0.5 text-neutral-400">
-                            —
-                          </div>
-                          <div className="border-r border-black px-1 py-0.5 text-neutral-400">
-                            —
-                          </div>
-                          <div className="border-r border-black px-1 py-0.5 text-right text-neutral-400">
-                            —
-                          </div>
-                          <div className="border-r border-black px-1 py-0.5 text-right text-neutral-400">
-                            —
-                          </div>
-                          <div className="border-r border-black px-1 py-0.5 text-neutral-400">
-                            —
-                          </div>
-                          <div className="px-1 py-0.5 text-neutral-400">—</div>
-                        </div>
-                      )}
-
-                      {/* Empty filler rows to keep the box height consistent (IATA layout) */}
-                      {Array.from({
-                        length: Math.max(
-                          0,
-                          3 - ((data as any).otherCharges?.length || 0),
-                        ),
-                      }).map((_, i) => (
-                        <div
-                          key={`filler-${i}`}
-                          className="grid grid-cols-[24px_1.6fr_1fr_1fr_0.8fr_1fr_0.9fr] border-b border-black last:border-b-0 h-[9px]"
-                        >
-                          <div className="border-r border-black" />
-                          <div className="border-r border-black" />
-                          <div className="border-r border-black" />
-                          <div className="border-r border-black" />
-                          <div className="border-r border-black" />
-                          <div className="border-r border-black" />
-                          <div />
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Fallback breakdown text (kept for compatibility, hidden if rows exist) */}
-                    {(!(data as any).otherCharges ||
-                      (data as any).otherCharges.length === 0) &&
-                      data.charges.otherChargesBreakdown && (
-                        <div className="font-bold text-[7px] tracking-wide px-1.5 py-0.5 border-t border-black">
-                          {data.charges.otherChargesBreakdown}
-                        </div>
-                      )}
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-[7.5px] font-mono text-neutral-400 italic px-0.5">
+                        NIL
+                      </div>
+                    )}
                   </div>
 
                   <div className="p-1.5 flex flex-col justify-between min-h-[64px]">
