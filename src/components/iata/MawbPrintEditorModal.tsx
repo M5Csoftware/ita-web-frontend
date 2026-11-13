@@ -32,7 +32,7 @@ interface MawbPrintEditorModalProps {
   initialData: MawbData;
   copyType: "ORIGINAL_1" | "ORIGINAL_2" | "ORIGINAL_3" | "EXTRA";
   onCopyTypeChange: (
-    type: "ORIGINAL_1" | "ORIGINAL_2" | "ORIGINAL_3" | "EXTRA"
+    type: "ORIGINAL_1" | "ORIGINAL_2" | "ORIGINAL_3" | "EXTRA",
   ) => void;
   initialViewMode?: "split" | "edit" | "preview";
 }
@@ -47,6 +47,16 @@ const INPUT_BASE =
 const TEXTAREA_BASE =
   "w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-mono text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#2C5EAD]/25 focus:border-[#2C5EAD] transition-all resize-y";
 
+type OtherChargeLine = {
+  id: string;
+  charge: string;
+  basis: "Per kg" | "Per piece" | "Flat";
+  rate: number | string;
+  amount: number | string;
+  dueTo: "Carrier" | "Agent";
+  payAt: "Prepaid" | "Collect";
+};
+
 export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
   isOpen,
   onClose,
@@ -57,8 +67,12 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
   initialViewMode = "split",
 }) => {
   const [data, setData] = useState<MawbData>(initialData);
-  const [viewMode, setViewMode] = useState<"split" | "edit" | "preview">(initialViewMode);
-  const [printActivePage, setPrintActivePage] = useState<"both" | "face" | "conditions">("both");
+  const [viewMode, setViewMode] = useState<"split" | "edit" | "preview">(
+    initialViewMode,
+  );
+  const [printActivePage, setPrintActivePage] = useState<
+    "both" | "face" | "conditions"
+  >("both");
   const [modalZoom, setModalZoom] = useState<number>(0.9);
   const [isExporting, setIsExporting] = useState<boolean>(false);
 
@@ -85,21 +99,30 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
     updateData((prev) => ({ ...prev, [key]: val }));
   };
 
-  const setShipper = (field: "nameAndAddress" | "accountNumber", val: string) => {
+  const setShipper = (
+    field: "nameAndAddress" | "accountNumber",
+    val: string,
+  ) => {
     updateData((prev) => ({
       ...prev,
       shipper: { ...prev.shipper, [field]: val },
     }));
   };
 
-  const setConsignee = (field: "nameAndAddress" | "accountNumber", val: string) => {
+  const setConsignee = (
+    field: "nameAndAddress" | "accountNumber",
+    val: string,
+  ) => {
     updateData((prev) => ({
       ...prev,
       consignee: { ...prev.consignee, [field]: val },
     }));
   };
 
-  const setAgent = (field: "nameAndCity" | "iataCode" | "accountNo", val: string) => {
+  const setAgent = (
+    field: "nameAndCity" | "iataCode" | "accountNo",
+    val: string,
+  ) => {
     updateData((prev) => ({
       ...prev,
       issuingAgent: { ...prev.issuingAgent, [field]: val },
@@ -113,7 +136,11 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
     }));
   };
 
-  const setFlight = (idx: number, field: keyof MawbRouteFlight, val: string) => {
+  const setFlight = (
+    idx: number,
+    field: keyof MawbRouteFlight,
+    val: string,
+  ) => {
     updateData((prev) => {
       const flights = [...(prev.routing.flights || [])];
       while (flights.length <= idx) {
@@ -161,9 +188,66 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
     }));
   };
 
+  // ---- Other Charges (line items) helpers ----
+  const addOtherCharge = () => {
+    updateData((prev: any) => ({
+      ...prev,
+      otherCharges: [
+        ...(prev.otherCharges || []),
+        {
+          id: `oc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          charge: "",
+          basis: "Per kg",
+          rate: "",
+          amount: "",
+          dueTo: "Carrier",
+          payAt: "Prepaid",
+        },
+      ],
+    }));
+  };
+
+  const setOtherCharge = (
+    idx: number,
+    field: keyof OtherChargeLine,
+    val: any,
+  ) => {
+    updateData((prev: any) => {
+      const arr = [...(prev.otherCharges || [])];
+      if (!arr[idx]) return prev;
+      arr[idx] = { ...arr[idx], [field]: val };
+
+      // Auto-calc amount when basis/rate changes
+      const line = arr[idx];
+      const chgWt =
+        Number(prev.items?.[0]?.chargeableWeight) ||
+        Number(prev.items?.[0]?.grossWeight) ||
+        0;
+      const rate = Number(line.rate) || 0;
+      if (line.basis === "Per kg")
+        line.amount = Number((rate * chgWt).toFixed(2));
+      if (line.basis === "Per piece")
+        line.amount = Number(
+          (rate * (Number(prev.items?.[0]?.pieces) || 0)).toFixed(2),
+        );
+      if (line.basis === "Flat") line.amount = rate;
+
+      return { ...prev, otherCharges: arr };
+    });
+  };
+
+  const removeOtherCharge = (idx: number) => {
+    updateData((prev: any) => ({
+      ...prev,
+      otherCharges: (prev.otherCharges || []).filter(
+        (_: any, i: number) => i !== idx,
+      ),
+    }));
+  };
+
   // Auto-calculate charges helper
   const handleAutoCalculate = () => {
-    updateData((prev) => {
+    updateData((prev: any) => {
       const it = prev.items[0] || {};
       const chgWt = Number(it.chargeableWeight) || Number(it.grossWeight) || 0;
       const rate = Number(it.rate) || 0;
@@ -174,22 +258,57 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
         updatedItems[0] = { ...updatedItems[0], total: freightTotal };
       }
 
+      // Recalc every other-charge line
+      const otherCharges = (prev.otherCharges || []).map((l: any) => {
+        const r = Number(l.rate) || 0;
+        let amt = 0;
+        if (l.basis === "Per kg") amt = r * chgWt;
+        else if (l.basis === "Per piece") amt = r * (Number(it.pieces) || 0);
+        else amt = r;
+        return { ...l, amount: Number(amt.toFixed(2)) };
+      });
+
+      const carrierFromOther = otherCharges
+        .filter((l: any) => l.dueTo === "Carrier" && l.payAt === "Prepaid")
+        .reduce((s: number, l: any) => s + Number(l.amount || 0), 0);
+
+      const agentFromOther = otherCharges
+        .filter((l: any) => l.dueTo === "Agent" && l.payAt === "Prepaid")
+        .reduce((s: number, l: any) => s + Number(l.amount || 0), 0);
+
       const carrierPrepaid = Number(prev.charges.carrierChargesPrepaid) || 0;
       const agentPrepaid = Number(prev.charges.agentChargesPrepaid) || 0;
       const taxPrepaid = Number(prev.charges.taxPrepaid) || 0;
       const valPrepaid = Number(prev.charges.valuationChargePrepaid) || 0;
 
       const totalPrepaid = Number(
-        (freightTotal + carrierPrepaid + agentPrepaid + taxPrepaid + valPrepaid).toFixed(2)
+        (
+          freightTotal +
+          carrierFromOther +
+          agentFromOther +
+          carrierPrepaid +
+          agentPrepaid +
+          taxPrepaid +
+          valPrepaid
+        ).toFixed(2),
       );
+
+      // Auto-generated breakdown string
+      const breakdown = otherCharges
+        .filter((l: any) => Number(l.amount) > 0)
+        .map((l: any) => `${l.charge || "CHG"}: ${Number(l.amount).toFixed(2)}`)
+        .join("  ");
 
       return {
         ...prev,
         items: updatedItems,
+        otherCharges,
         charges: {
           ...prev.charges,
           prepaidWeightCharge: freightTotal,
           totalPrepaid,
+          otherChargesBreakdown:
+            breakdown || prev.charges.otherChargesBreakdown,
         },
       };
     });
@@ -221,7 +340,8 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
     try {
       const prefix = (data.awbPrefix || "077").replace(/[^a-zA-Z0-9]/g, "");
       const serial = (data.awbSerial || "AWB").replace(/[^a-zA-Z0-9]/g, "_");
-      const pageSuffix = printActivePage === "both" ? "" : `_${printActivePage.toUpperCase()}`;
+      const pageSuffix =
+        printActivePage === "both" ? "" : `_${printActivePage.toUpperCase()}`;
       const fileName = `MAWB_${prefix}-${serial}${pageSuffix}.pdf`;
       await downloadMawbPdf(fileName, printActivePage);
     } catch (err) {
@@ -234,6 +354,16 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
   const primaryItem = data.items[0] || ({} as MawbItemLine);
   const flight1 = data.routing.flights?.[0] || { flightNo: "", date: "" };
   const flight2 = data.routing.flights?.[1] || { flightNo: "", date: "" };
+  const otherCharges: OtherChargeLine[] = (data as any).otherCharges || [];
+
+  const computedWeightCharge = (() => {
+    const w =
+      Number(primaryItem.chargeableWeight) ||
+      Number(primaryItem.grossWeight) ||
+      0;
+    const r = Number(primaryItem.rate) || 0;
+    return w && r ? Number((w * r).toFixed(2)) : 0;
+  })();
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-1.5 sm:p-2.5 bg-slate-900/70 backdrop-blur-xs animate-in fade-in">
@@ -255,7 +385,10 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-500 font-mono">
-                MAWB: <span className="font-semibold text-slate-800">{mawbNumber}</span>
+                MAWB:{" "}
+                <span className="font-semibold text-slate-800">
+                  {mawbNumber}
+                </span>
               </p>
             </div>
           </div>
@@ -347,7 +480,11 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
               value={copyType}
               onChange={(e) =>
                 onCopyTypeChange(
-                  e.target.value as "ORIGINAL_1" | "ORIGINAL_2" | "ORIGINAL_3" | "EXTRA"
+                  e.target.value as
+                    | "ORIGINAL_1"
+                    | "ORIGINAL_2"
+                    | "ORIGINAL_3"
+                    | "EXTRA",
                 )
               }
               className="px-2.5 py-1.5 text-xs font-semibold bg-white border border-slate-300 rounded-lg text-slate-800 shadow-xs focus:ring-2 focus:ring-[#2C5EAD]/20 focus:border-[#2C5EAD] shrink-0"
@@ -363,7 +500,11 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
               <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs shrink-0">
                 <button
                   type="button"
-                  onClick={() => setModalZoom((z) => Math.max(0.5, parseFloat((z - 0.1).toFixed(2))))}
+                  onClick={() =>
+                    setModalZoom((z) =>
+                      Math.max(0.5, parseFloat((z - 0.1).toFixed(2))),
+                    )
+                  }
                   className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded transition-all cursor-pointer"
                   title="Zoom out"
                 >
@@ -379,7 +520,11 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setModalZoom((z) => Math.min(1.5, parseFloat((z + 0.1).toFixed(2))))}
+                  onClick={() =>
+                    setModalZoom((z) =>
+                      Math.min(1.5, parseFloat((z + 0.1).toFixed(2))),
+                    )
+                  }
                   className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded transition-all cursor-pointer"
                   title="Zoom in"
                 >
@@ -445,8 +590,8 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
               viewMode === "split"
                 ? "w-full md:w-[48%] xl:w-[45%]"
                 : viewMode === "edit"
-                ? "w-full"
-                : "hidden"
+                  ? "w-full"
+                  : "hidden"
             }`}
           >
             <div className="max-w-3xl mx-auto space-y-4">
@@ -455,7 +600,8 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                 <div className="flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-[#2C5EAD] shrink-0" />
                   <span>
-                    Any changes made here update the AWB Sheet in real-time before printing.
+                    Any changes made here update the AWB Sheet in real-time
+                    before printing.
                   </span>
                 </div>
                 <button
@@ -500,7 +646,9 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                     <input
                       type="text"
                       value={data.departureAirportCode || ""}
-                      onChange={(e) => setTopLevel("departureAirportCode", e.target.value)}
+                      onChange={(e) =>
+                        setTopLevel("departureAirportCode", e.target.value)
+                      }
                       placeholder="DEL"
                       className={INPUT_BASE}
                     />
@@ -513,7 +661,9 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                     <input
                       type="text"
                       value={data.carrierName || ""}
-                      onChange={(e) => setTopLevel("carrierName", e.target.value)}
+                      onChange={(e) =>
+                        setTopLevel("carrierName", e.target.value)
+                      }
                       placeholder="EGYPT AIR"
                       className={INPUT_BASE}
                     />
@@ -523,7 +673,9 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                     <input
                       type="text"
                       value={data.accountingInfo || ""}
-                      onChange={(e) => setTopLevel("accountingInfo", e.target.value)}
+                      onChange={(e) =>
+                        setTopLevel("accountingInfo", e.target.value)
+                      }
                       placeholder="FREIGHT PREPAID"
                       className={INPUT_BASE}
                     />
@@ -538,11 +690,15 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                   <span>2. Shipper&apos;s Name and Address</span>
                 </h4>
                 <div>
-                  <label className={FIELD_LABEL}>Shipper Name &amp; Full Address</label>
+                  <label className={FIELD_LABEL}>
+                    Shipper Name &amp; Full Address
+                  </label>
                   <textarea
                     rows={3}
                     value={data.shipper.nameAndAddress || ""}
-                    onChange={(e) => setShipper("nameAndAddress", e.target.value)}
+                    onChange={(e) =>
+                      setShipper("nameAndAddress", e.target.value)
+                    }
                     placeholder="Shipper company name&#10;Street address, complex&#10;City, State, PIN"
                     className={TEXTAREA_BASE}
                   />
@@ -552,7 +708,9 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                   <input
                     type="text"
                     value={data.shipper.accountNumber || ""}
-                    onChange={(e) => setShipper("accountNumber", e.target.value)}
+                    onChange={(e) =>
+                      setShipper("accountNumber", e.target.value)
+                    }
                     placeholder="Optional account number"
                     className={INPUT_BASE}
                   />
@@ -566,21 +724,29 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                   <span>3. Consignee&apos;s Name and Address</span>
                 </h4>
                 <div>
-                  <label className={FIELD_LABEL}>Consignee Name &amp; Full Address</label>
+                  <label className={FIELD_LABEL}>
+                    Consignee Name &amp; Full Address
+                  </label>
                   <textarea
                     rows={3}
                     value={data.consignee.nameAndAddress || ""}
-                    onChange={(e) => setConsignee("nameAndAddress", e.target.value)}
+                    onChange={(e) =>
+                      setConsignee("nameAndAddress", e.target.value)
+                    }
                     placeholder="Consignee company name&#10;Street address&#10;City, Country, Phone"
                     className={TEXTAREA_BASE}
                   />
                 </div>
                 <div>
-                  <label className={FIELD_LABEL}>Consignee Account Number</label>
+                  <label className={FIELD_LABEL}>
+                    Consignee Account Number
+                  </label>
                   <input
                     type="text"
                     value={data.consignee.accountNumber || ""}
-                    onChange={(e) => setConsignee("accountNumber", e.target.value)}
+                    onChange={(e) =>
+                      setConsignee("accountNumber", e.target.value)
+                    }
                     placeholder="Optional account number"
                     className={INPUT_BASE}
                   />
@@ -610,7 +776,7 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                       type="text"
                       value={data.issuingAgent.iataCode || ""}
                       onChange={(e) => setAgent("iataCode", e.target.value)}
-                      placeholder="14-0-26840004"
+                      placeholder="14026840004"
                       className={INPUT_BASE}
                     />
                   </div>
@@ -639,7 +805,9 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                     <input
                       type="text"
                       value={data.routing.departureAirport || ""}
-                      onChange={(e) => setRouting("departureAirport", e.target.value)}
+                      onChange={(e) =>
+                        setRouting("departureAirport", e.target.value)
+                      }
                       placeholder="DELHI"
                       className={INPUT_BASE}
                     />
@@ -659,7 +827,9 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                     <input
                       type="text"
                       value={data.routing.byFirstCarrier || ""}
-                      onChange={(e) => setRouting("byFirstCarrier", e.target.value)}
+                      onChange={(e) =>
+                        setRouting("byFirstCarrier", e.target.value)
+                      }
                       placeholder="MS"
                       className={INPUT_BASE}
                     />
@@ -669,7 +839,9 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                     <input
                       type="text"
                       value={data.routing.destinationAirport || ""}
-                      onChange={(e) => setRouting("destinationAirport", e.target.value)}
+                      onChange={(e) =>
+                        setRouting("destinationAirport", e.target.value)
+                      }
                       placeholder="LONDON"
                       className={INPUT_BASE}
                     />
@@ -770,7 +942,9 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                     <input
                       type="text"
                       value={data.routing.declaredValueCarriage || "N.V.D."}
-                      onChange={(e) => setRouting("declaredValueCarriage", e.target.value)}
+                      onChange={(e) =>
+                        setRouting("declaredValueCarriage", e.target.value)
+                      }
                       placeholder="N.V.D."
                       className={INPUT_BASE}
                     />
@@ -780,7 +954,9 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                     <input
                       type="text"
                       value={data.routing.declaredValueCustoms || "N.C.V."}
-                      onChange={(e) => setRouting("declaredValueCustoms", e.target.value)}
+                      onChange={(e) =>
+                        setRouting("declaredValueCustoms", e.target.value)
+                      }
                       placeholder="N.C.V."
                       className={INPUT_BASE}
                     />
@@ -790,7 +966,9 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                     <input
                       type="text"
                       value={data.routing.amountOfInsurance || "NIL"}
-                      onChange={(e) => setRouting("amountOfInsurance", e.target.value)}
+                      onChange={(e) =>
+                        setRouting("amountOfInsurance", e.target.value)
+                      }
                       placeholder="NIL"
                       className={INPUT_BASE}
                     />
@@ -810,13 +988,17 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                     <textarea
                       rows={2}
                       value={data.routing.handlingInfo || ""}
-                      onChange={(e) => setRouting("handlingInfo", e.target.value)}
+                      onChange={(e) =>
+                        setRouting("handlingInfo", e.target.value)
+                      }
                       placeholder="CODE GEN / CONSOL OF 1 HAWB..."
                       className={TEXTAREA_BASE}
                     />
                   </div>
                   <div>
-                    <label className={FIELD_LABEL}>SCI (Special Customs Info)</label>
+                    <label className={FIELD_LABEL}>
+                      SCI (Special Customs Info)
+                    </label>
                     <input
                       type="text"
                       value={data.routing.sci || "SCI"}
@@ -852,7 +1034,9 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                       type="number"
                       step="any"
                       value={primaryItem.grossWeight ?? ""}
-                      onChange={(e) => setItem(0, "grossWeight", e.target.value)}
+                      onChange={(e) =>
+                        setItem(0, "grossWeight", e.target.value)
+                      }
                       placeholder="230.0"
                       className={INPUT_BASE}
                     />
@@ -887,7 +1071,9 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                       type="number"
                       step="any"
                       value={primaryItem.chargeableWeight ?? ""}
-                      onChange={(e) => setItem(0, "chargeableWeight", e.target.value)}
+                      onChange={(e) =>
+                        setItem(0, "chargeableWeight", e.target.value)
+                      }
                       placeholder="230.0"
                       className={INPUT_BASE}
                     />
@@ -917,43 +1103,238 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                 </div>
 
                 <div className="pt-1">
-                  <label className={FIELD_LABEL}>Nature and Quantity of Goods (incl. Consol HAWBs)</label>
+                  <label className={FIELD_LABEL}>
+                    Nature and Quantity of Goods (incl. Consol HAWBs)
+                  </label>
                   <textarea
                     rows={4}
                     value={primaryItem.natureAndQuantity || ""}
-                    onChange={(e) => setItem(0, "natureAndQuantity", e.target.value)}
+                    onChange={(e) =>
+                      setItem(0, "natureAndQuantity", e.target.value)
+                    }
                     placeholder="READY MADE GARMENTS&#10;CONSOL OF 1 HAWB(S): HAWB-DEL-6545-01&#10;DIM: 100x60x50 cm"
                     className={TEXTAREA_BASE}
                   />
                 </div>
               </div>
 
-              {/* 8. Charges & Surcharges Breakdown */}
+              {/* 8. Other Charges & Summary Totals */}
               <div className={SECTION_CARD}>
                 <h4 className={SECTION_TITLE}>
                   <Calculator className="w-3.5 h-3.5 text-[#2C5EAD]" />
                   <span>8. Other Charges &amp; Summary Totals</span>
                 </h4>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {/* Weight summary row */}
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pb-2 border-b border-slate-100">
+                  <div>
+                    <label className={FIELD_LABEL}>Actual Weight (kg)</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={primaryItem.grossWeight ?? ""}
+                      onChange={(e) =>
+                        setItem(0, "grossWeight", e.target.value)
+                      }
+                      className={`${INPUT_BASE} text-center`}
+                    />
+                  </div>
+                  <div>
+                    <label className={FIELD_LABEL}>
+                      Chargeable Weight (kg)
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={primaryItem.chargeableWeight ?? ""}
+                      onChange={(e) =>
+                        setItem(0, "chargeableWeight", e.target.value)
+                      }
+                      className={`${INPUT_BASE} text-center`}
+                    />
+                  </div>
+                  <div>
+                    <label className={FIELD_LABEL}>Weight Rate per kg</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={primaryItem.rate ?? ""}
+                      onChange={(e) => setItem(0, "rate", e.target.value)}
+                      className={`${INPUT_BASE} text-center`}
+                    />
+                  </div>
+                  <div>
+                    <label className={FIELD_LABEL}>
+                      Wt. Charge (Rate × Wt)
+                    </label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={
+                        computedWeightCharge
+                          ? computedWeightCharge.toFixed(2)
+                          : ""
+                      }
+                      className={`${INPUT_BASE} text-center font-bold text-[#2C5EAD] bg-slate-50`}
+                    />
+                  </div>
+                  <div>
+                    <label className={FIELD_LABEL}>Weight Charge Pay at</label>
+                    <select
+                      value={(data as any).weightChargePayAt || "Prepaid"}
+                      onChange={(e) =>
+                        setTopLevel("weightChargePayAt" as any, e.target.value)
+                      }
+                      className={INPUT_BASE}
+                    >
+                      <option value="Prepaid">Prepaid</option>
+                      <option value="Collect">Collect</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Other Charges table header */}
+                <div className="text-[11px] font-bold text-slate-700 pt-1">
+                  Other Charges (amount = rate × chargeable weight for &quot;Per
+                  kg&quot;)
+                </div>
+
+                {/* Table */}
+                <div className="border border-slate-200 rounded-lg overflow-hidden">
+                  {/* Header row */}
+                  <div className="grid grid-cols-[28px_1.6fr_0.9fr_0.8fr_1fr_0.9fr_0.9fr_28px] gap-1 bg-slate-100 px-2 py-1.5 text-[10px] font-bold text-slate-600 uppercase tracking-wide items-center">
+                    <span>#</span>
+                    <span>Charge</span>
+                    <span>Basis</span>
+                    <span>Rate</span>
+                    <span>Amount</span>
+                    <span>Due to</span>
+                    <span>Pay at</span>
+                    <span />
+                  </div>
+
+                  {/* Rows */}
+                  {otherCharges.length > 0 ? (
+                    otherCharges.map((line, idx) => (
+                      <div
+                        key={line.id || idx}
+                        className="grid grid-cols-[28px_1.6fr_0.9fr_0.8fr_1fr_0.9fr_0.9fr_28px] gap-1 px-2 py-1 items-center border-t border-slate-100"
+                      >
+                        <span className="text-[11px] text-slate-500 font-mono">
+                          {idx + 1}
+                        </span>
+                        <input
+                          type="text"
+                          value={line.charge}
+                          onChange={(e) =>
+                            setOtherCharge(idx, "charge", e.target.value)
+                          }
+                          placeholder="Fuel Surcharge (FSC)"
+                          className={`${INPUT_BASE} !py-1`}
+                        />
+                        <select
+                          value={line.basis}
+                          onChange={(e) =>
+                            setOtherCharge(idx, "basis", e.target.value)
+                          }
+                          className={`${INPUT_BASE} !py-1`}
+                        >
+                          <option value="Per kg">Per kg</option>
+                          <option value="Per piece">Per piece</option>
+                          <option value="Flat">Flat</option>
+                        </select>
+                        <input
+                          type="number"
+                          step="any"
+                          value={line.rate}
+                          onChange={(e) =>
+                            setOtherCharge(idx, "rate", e.target.value)
+                          }
+                          placeholder="0.00"
+                          className={`${INPUT_BASE} !py-1 text-right`}
+                        />
+                        <input
+                          type="text"
+                          readOnly
+                          value={
+                            Number(line.amount)
+                              ? Number(line.amount).toFixed(2)
+                              : ""
+                          }
+                          className={`${INPUT_BASE} !py-1 text-right font-semibold bg-slate-50`}
+                        />
+                        <select
+                          value={line.dueTo}
+                          onChange={(e) =>
+                            setOtherCharge(idx, "dueTo", e.target.value)
+                          }
+                          className={`${INPUT_BASE} !py-1`}
+                        >
+                          <option value="Carrier">Carrier</option>
+                          <option value="Agent">Agent</option>
+                        </select>
+                        <select
+                          value={line.payAt}
+                          onChange={(e) =>
+                            setOtherCharge(idx, "payAt", e.target.value)
+                          }
+                          className={`${INPUT_BASE} !py-1`}
+                        >
+                          <option value="Prepaid">Prepaid</option>
+                          <option value="Collect">Collect</option>
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => removeOtherCharge(idx)}
+                          className="text-red-400 hover:text-red-600 hover:bg-red-50 rounded p-1 transition-colors cursor-pointer"
+                          title="Remove charge"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="px-2 py-3 text-center text-[11px] text-slate-400 border-t border-slate-100">
+                      No other charges added yet.
+                    </div>
+                  )}
+
+                  {/* + Add Charge */}
+                  <button
+                    type="button"
+                    onClick={addOtherCharge}
+                    className="w-full py-1.5 text-[11px] font-bold text-[#2C5EAD] hover:bg-blue-50 border-t border-slate-200 transition-colors cursor-pointer"
+                  >
+                    + Add Charge
+                  </button>
+                </div>
+
+                {/* Totals row */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
                   <div>
                     <label className={FIELD_LABEL}>Weight Charge Prepaid</label>
                     <input
                       type="number"
                       step="any"
                       value={data.charges.prepaidWeightCharge ?? ""}
-                      onChange={(e) => setCharges("prepaidWeightCharge", e.target.value)}
+                      onChange={(e) =>
+                        setCharges("prepaidWeightCharge", e.target.value)
+                      }
                       placeholder="27600.00"
                       className={INPUT_BASE}
                     />
                   </div>
                   <div>
-                    <label className={FIELD_LABEL}>Carrier Charges Prepaid</label>
+                    <label className={FIELD_LABEL}>
+                      Carrier Charges Prepaid
+                    </label>
                     <input
                       type="number"
                       step="any"
                       value={data.charges.carrierChargesPrepaid ?? ""}
-                      onChange={(e) => setCharges("carrierChargesPrepaid", e.target.value)}
+                      onChange={(e) =>
+                        setCharges("carrierChargesPrepaid", e.target.value)
+                      }
                       placeholder="570.00"
                       className={INPUT_BASE}
                     />
@@ -964,7 +1345,9 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                       type="number"
                       step="any"
                       value={data.charges.agentChargesPrepaid ?? ""}
-                      onChange={(e) => setCharges("agentChargesPrepaid", e.target.value)}
+                      onChange={(e) =>
+                        setCharges("agentChargesPrepaid", e.target.value)
+                      }
                       placeholder="0.00"
                       className={INPUT_BASE}
                     />
@@ -978,7 +1361,9 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                       type="number"
                       step="any"
                       value={data.charges.totalPrepaid ?? ""}
-                      onChange={(e) => setCharges("totalPrepaid", e.target.value)}
+                      onChange={(e) =>
+                        setCharges("totalPrepaid", e.target.value)
+                      }
                       placeholder="28170.00"
                       className={`${INPUT_BASE} font-bold text-[#2C5EAD]`}
                     />
@@ -989,7 +1374,9 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                       type="number"
                       step="any"
                       value={data.charges.totalCollect ?? ""}
-                      onChange={(e) => setCharges("totalCollect", e.target.value)}
+                      onChange={(e) =>
+                        setCharges("totalCollect", e.target.value)
+                      }
                       placeholder="0.00"
                       className={INPUT_BASE}
                     />
@@ -997,14 +1384,22 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                 </div>
 
                 <div className="pt-1">
-                  <label className={FIELD_LABEL}>Other Charges Breakdown</label>
+                  <label className={FIELD_LABEL}>
+                    Other Charges Breakdown (auto-generated)
+                  </label>
                   <input
                     type="text"
                     value={data.charges.otherChargesBreakdown || ""}
-                    onChange={(e) => setCharges("otherChargesBreakdown", e.target.value)}
-                    placeholder="FSC: 450.00  SSC: 120.00"
+                    onChange={(e) =>
+                      setCharges("otherChargesBreakdown", e.target.value)
+                    }
+                    placeholder="FSC: 11550.00  SSC: 4200.00"
                     className={INPUT_BASE}
                   />
+                  <p className="mt-1 text-[10px] text-slate-400">
+                    Amounts update live when rate or chargeable weight changes.
+                    Any amount can be overridden with a reason (audit log).
+                  </p>
                 </div>
               </div>
 
@@ -1017,21 +1412,29 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className={FIELD_LABEL}>Shipper / Agent Certification Signatory</label>
+                    <label className={FIELD_LABEL}>
+                      Shipper / Agent Certification Signatory
+                    </label>
                     <input
                       type="text"
                       value={data.execution.shipperCertSignatory || ""}
-                      onChange={(e) => setExecution("shipperCertSignatory", e.target.value)}
+                      onChange={(e) =>
+                        setExecution("shipperCertSignatory", e.target.value)
+                      }
                       placeholder="SPREETRANS INTERNATIONAL"
                       className={INPUT_BASE}
                     />
                   </div>
                   <div>
-                    <label className={FIELD_LABEL}>Issuing Carrier Agent Signature</label>
+                    <label className={FIELD_LABEL}>
+                      Issuing Carrier Agent Signature
+                    </label>
                     <input
                       type="text"
                       value={data.execution.carrierAgentSignature || ""}
-                      onChange={(e) => setExecution("carrierAgentSignature", e.target.value)}
+                      onChange={(e) =>
+                        setExecution("carrierAgentSignature", e.target.value)
+                      }
                       placeholder="SPREETRANS INTERNATIONAL"
                       className={INPUT_BASE}
                     />
@@ -1044,7 +1447,9 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                     <input
                       type="text"
                       value={data.execution.executedDate || ""}
-                      onChange={(e) => setExecution("executedDate", e.target.value)}
+                      onChange={(e) =>
+                        setExecution("executedDate", e.target.value)
+                      }
                       placeholder="12/08/2023"
                       className={INPUT_BASE}
                     />
@@ -1054,7 +1459,9 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                     <input
                       type="text"
                       value={data.execution.executedPlace || ""}
-                      onChange={(e) => setExecution("executedPlace", e.target.value)}
+                      onChange={(e) =>
+                        setExecution("executedPlace", e.target.value)
+                      }
                       placeholder="DELHI"
                       className={INPUT_BASE}
                     />
