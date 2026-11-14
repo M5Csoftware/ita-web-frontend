@@ -3,6 +3,7 @@
 
 import React from "react";
 import { MawbData } from "@/types/mawb";
+import { IATA_AIRLINES } from "@/lib/iata-data";
 
 interface MawbSheetProps {
   data: MawbData;
@@ -137,6 +138,29 @@ export function MawbSheet({
   const showPage1 = activePage === "both" || activePage === "face";
   const showPage2 = activePage === "both" || activePage === "conditions";
 
+  const displayCarrierName = (() => {
+    const rawPrefix = (data.awbPrefix || "").includes("-")
+      ? (data.awbPrefix || "").split("-")[0].trim()
+      : (data.awbPrefix || "").trim();
+    const cleanPrefix = rawPrefix.replace(/\D/g, "");
+    const matched = IATA_AIRLINES.find(
+      (a) =>
+        a.prefix === cleanPrefix ||
+        a.prefix === rawPrefix ||
+        a.prefix.padStart(3, "0") === cleanPrefix.padStart(3, "0"),
+    );
+    if (
+      data.carrierName &&
+      data.carrierName.trim() &&
+      (data.carrierName.trim().toUpperCase() !== "EGYPT AIR" ||
+        cleanPrefix === "077")
+    ) {
+      return data.carrierName.trim().toUpperCase();
+    }
+    if (matched) return matched.name.toUpperCase();
+    return data.carrierName?.trim().toUpperCase() || "";
+  })();
+
   const item = data.items[0] || {
     pieces: "",
     grossWeight: "",
@@ -158,10 +182,23 @@ export function MawbSheet({
           if (!line) return false;
           const charge = String(line.charge || "").trim();
           const amt = Number(line.amount);
-          return (charge !== "" && charge !== "—") || (!isNaN(amt) && amt > 0);
+          const isAgreed =
+            String(line.amount || "").trim().toLowerCase() === "as agreed" ||
+            String(line.rate || "").trim().toLowerCase() === "as agreed";
+          return (
+            isAgreed ||
+            (charge !== "" && charge !== "—") ||
+            (!isNaN(amt) && amt > 0)
+          );
         })
         .map((line: any) => {
           const code = String(line.charge || "CHG").trim().toUpperCase();
+          const isAgreed =
+            String(line.amount || "").trim().toLowerCase() === "as agreed" ||
+            String(line.rate || "").trim().toLowerCase() === "as agreed";
+          if (isAgreed) {
+            return `${code}-AS AGREED`;
+          }
           const num = Number(line.amount);
           const amtStr =
             !isNaN(num) && line.amount !== "" && line.amount !== null
@@ -345,7 +382,7 @@ export function MawbSheet({
                         AIR WAYBILL
                       </span>
                       <span className="font-bold text-[12px] tracking-wider uppercase leading-none">
-                        {data.carrierName || "EGYPT AIR"}
+                        {displayCarrierName || "AIRLINE CARRIER"}
                       </span>
                     </div>
                     <div className="text-[7.5px] leading-tight text-neutral-800 mt-0.5">
