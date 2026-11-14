@@ -13,6 +13,7 @@ export interface MawbItemLine {
   natureAndQuantity?: string;
   dimensions?: DimensionEntry[];
   volumetricWeightKg?: number | string;
+  prevRate?: string | number;
 }
 
 export interface MawbRouteFlight {

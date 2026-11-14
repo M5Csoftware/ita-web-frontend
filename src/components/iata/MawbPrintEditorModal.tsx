@@ -62,6 +62,7 @@ type OtherChargeLine = {
   amount: number | string;
   dueTo: "Carrier" | "Agent";
   payAt: "Prepaid" | "Collect";
+  prevRate?: number | string;
 };
 
 export interface DimensionRow {
@@ -145,6 +146,21 @@ function parseOtherChargesFromBreakdown(
     for (const part of parts) {
       const trimmed = part.trim();
       if (!trimmed) continue;
+      const agreedMatch = trimmed.match(
+        /^([A-Za-z0-9_]+)\s*[-:]\s*(?:AS AGREED|AS PER DISCUSSED)/i,
+      );
+      if (agreedMatch) {
+        lines.push({
+          id: `oc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          charge: agreedMatch[1].toUpperCase(),
+          basis: "Flat",
+          rate: "as agreed",
+          amount: "as agreed",
+          dueTo: "Carrier",
+          payAt: "Prepaid",
+        });
+        continue;
+      }
       const colonMatch = trimmed.match(/^([A-Za-z0-9_]+)\s*:\s*([0-9.,]+)/);
       if (colonMatch) {
         lines.push({
@@ -412,20 +428,24 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
 
   // Helper to match an airline from master data or IATA presets by 3-digit prefix
   const findAirlineByPrefix = (prefix: string) => {
-    const clean = prefix.replace(/\D/g, "");
+    if (!prefix) return null;
+    const raw = prefix.includes("-")
+      ? prefix.split("-")[0].trim()
+      : prefix.trim();
+    const clean = raw.replace(/\D/g, "");
     if (!clean) return null;
     return (
       airlines.find(
         (a) =>
           a.prefix === clean ||
-          a.prefix === prefix.trim() ||
-          a.prefix.padStart(3, "0") === clean.padStart(3, "0")
+          a.prefix === raw ||
+          a.prefix.padStart(3, "0") === clean.padStart(3, "0"),
       ) ||
       IATA_AIRLINES.find(
         (a) =>
           a.prefix === clean ||
-          a.prefix === prefix.trim() ||
-          a.prefix.padStart(3, "0") === clean.padStart(3, "0")
+          a.prefix === raw ||
+          a.prefix.padStart(3, "0") === clean.padStart(3, "0"),
       ) ||
       null
     );
@@ -433,12 +453,21 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
 
   // Sync when initialData or initialViewMode changes
   useEffect(() => {
+    if (!isOpen) return;
     const cloned = JSON.parse(JSON.stringify(initialData)) as MawbData;
-    if (!cloned.carrierName && cloned.awbPrefix) {
-      const matched = findAirlineByPrefix(cloned.awbPrefix);
-      if (matched) {
-        cloned.carrierName = matched.name.toUpperCase();
-      }
+    const cleanPrefix = (cloned.awbPrefix || "").includes("-")
+      ? (cloned.awbPrefix || "").split("-")[0].replace(/\D/g, "")
+      : (cloned.awbPrefix || "").replace(/\D/g, "");
+    const matched = findAirlineByPrefix(cloned.awbPrefix || "");
+    const isStaleEgyptAir =
+      cloned.carrierName &&
+      cloned.carrierName.trim().toUpperCase() === "EGYPT AIR" &&
+      cleanPrefix !== "077";
+    if (
+      matched &&
+      (!cloned.carrierName || isStaleEgyptAir || cleanPrefix !== "077")
+    ) {
+      cloned.carrierName = matched.name.toUpperCase();
     }
     // If otherCharges array is missing or empty, parse from breakdown or carrierChargesPrepaid
     if (
@@ -454,7 +483,26 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
       }
     }
     setData(cloned);
-  }, [initialData]);
+  }, [initialData, isOpen]);
+
+  useEffect(() => {
+    if (!data.awbPrefix) return;
+    const cleanPrefix = data.awbPrefix.includes("-")
+      ? data.awbPrefix.split("-")[0].replace(/\D/g, "")
+      : data.awbPrefix.replace(/\D/g, "");
+    const matched = findAirlineByPrefix(data.awbPrefix);
+    if (matched && cleanPrefix !== "077") {
+      if (
+        !data.carrierName ||
+        data.carrierName.trim().toUpperCase() === "EGYPT AIR"
+      ) {
+        setData((prev) => ({
+          ...prev,
+          carrierName: matched.name.toUpperCase(),
+        }));
+      }
+    }
+  }, [airlines]);
 
   useEffect(() => {
     if (initialViewMode) {
@@ -570,6 +618,18 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
           natureAndQuantity: "",
         };
       }
+      if (field === "rate") {
+        if (
+          val !== "as agreed" &&
+          val !== "As per discussed" &&
+          val !== "" &&
+          val !== undefined &&
+          val !== null
+        ) {
+          items[idx] = { ...items[idx], [field]: val, prevRate: val };
+          return { ...prev, items };
+        }
+      }
       items[idx] = { ...items[idx], [field]: val };
       return { ...prev, items };
     });
@@ -616,40 +676,126 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
     updateData((prev: any) => {
       const arr = [...(prev.otherCharges || [])];
       if (!arr[idx]) return prev;
-      arr[idx] = { ...arr[idx], [field]: val };
+      const line = { ...arr[idx] };
+      arr[idx] = line;
 
-      // Auto-calc amount when basis/rate changes
-      const line = arr[idx];
-      const chgWt =
-        Number(prev.items?.[0]?.chargeableWeight) ||
-        Number(prev.items?.[0]?.grossWeight) ||
-        0;
-      const rate = Number(line.rate) || 0;
-      if (line.basis === "Per kg")
-        line.amount = Number((rate * chgWt).toFixed(2));
-      if (line.basis === "Per piece")
-        line.amount = Number(
-          (rate * (Number(prev.items?.[0]?.pieces) || 0)).toFixed(2),
-        );
-      if (line.basis === "Flat") line.amount = rate;
+      // Handle field change and auto-calc
+      if (field === "rate") {
+        if (String(val || "").trim().toLowerCase() === "as agreed") {
+          if (
+            line.rate !== "as agreed" &&
+            line.rate !== "" &&
+            line.rate !== undefined &&
+            line.rate !== null
+          ) {
+            line.prevRate = line.rate;
+          }
+          line.rate = "as agreed";
+          line.amount = "as agreed";
+        } else {
+          let finalVal = val;
+          if (
+            (val === "" || val === null || val === undefined) &&
+            line.rate === "as agreed" &&
+            line.prevRate !== undefined &&
+            line.prevRate !== "" &&
+            line.prevRate !== "as agreed"
+          ) {
+            finalVal = line.prevRate;
+          }
+          line.rate = finalVal;
+          if (
+            finalVal !== "" &&
+            finalVal !== "as agreed" &&
+            finalVal !== undefined &&
+            finalVal !== null
+          ) {
+            line.prevRate = finalVal;
+          }
+          const chgWt =
+            Number(prev.items?.[0]?.chargeableWeight) ||
+            Number(prev.items?.[0]?.grossWeight) ||
+            0;
+          const rateNum = Number(finalVal) || 0;
+          if (line.basis === "Per kg")
+            line.amount =
+              finalVal === "" ? "" : Number((rateNum * chgWt).toFixed(2));
+          else if (line.basis === "Per piece")
+            line.amount =
+              finalVal === ""
+                ? ""
+                : Number(
+                    (rateNum * (Number(prev.items?.[0]?.pieces) || 0)).toFixed(
+                      2,
+                    ),
+                  );
+          else if (line.basis === "Flat")
+            line.amount = finalVal === "" ? "" : rateNum;
+        }
+      } else if (field === "basis") {
+        line.basis = val;
+        if (String(line.rate || "").trim().toLowerCase() === "as agreed") {
+          line.amount = "as agreed";
+        } else {
+          const chgWt =
+            Number(prev.items?.[0]?.chargeableWeight) ||
+            Number(prev.items?.[0]?.grossWeight) ||
+            0;
+          const rateNum = Number(line.rate) || 0;
+          if (val === "Per kg")
+            line.amount =
+              line.rate === "" ? "" : Number((rateNum * chgWt).toFixed(2));
+          else if (val === "Per piece")
+            line.amount =
+              line.rate === ""
+                ? ""
+                : Number(
+                    (rateNum * (Number(prev.items?.[0]?.pieces) || 0)).toFixed(
+                      2,
+                    ),
+                  );
+          else if (val === "Flat")
+            line.amount = line.rate === "" ? "" : rateNum;
+        }
+      } else {
+        (line as any)[field] = val;
+      }
 
       const carrierFromOther = arr
         .filter((l: any) => l.dueTo === "Carrier" && l.payAt === "Prepaid")
-        .reduce((s: number, l: any) => s + (Number(l.amount) || 0), 0);
+        .reduce(
+          (s: number, l: any) =>
+            s + (!isNaN(Number(l.amount)) ? Number(l.amount) : 0),
+          0,
+        );
 
       const agentFromOther = arr
         .filter((l: any) => l.dueTo === "Agent" && l.payAt === "Prepaid")
-        .reduce((s: number, l: any) => s + (Number(l.amount) || 0), 0);
+        .reduce(
+          (s: number, l: any) =>
+            s + (!isNaN(Number(l.amount)) ? Number(l.amount) : 0),
+          0,
+        );
 
       const carrierChargesPrepaid = Number(carrierFromOther.toFixed(2));
       const agentChargesPrepaid = Number(agentFromOther.toFixed(2));
 
       const breakdown = arr
-        .filter((l: any) => Number(l.amount) > 0 && l.charge)
-        .map(
-          (l: any) =>
-            `${String(l.charge).trim().toUpperCase()}-${Number(l.amount).toFixed(2)}`,
-        )
+        .filter((l: any) => {
+          if (!l.charge) return false;
+          const isAgreed =
+            String(l.rate || "").trim().toLowerCase() === "as agreed" ||
+            String(l.amount || "").trim().toLowerCase() === "as agreed";
+          return isAgreed || Number(l.amount) > 0;
+        })
+        .map((l: any) => {
+          const isAgreed =
+            String(l.rate || "").trim().toLowerCase() === "as agreed" ||
+            String(l.amount || "").trim().toLowerCase() === "as agreed";
+          const code = String(l.charge).trim().toUpperCase();
+          if (isAgreed) return `${code}-AS AGREED`;
+          return `${code}-${Number(l.amount).toFixed(2)}`;
+        })
         .join(", ");
 
       const it = prev.items?.[0] || {};
@@ -701,21 +847,39 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
 
       const carrierFromOther = remaining
         .filter((l: any) => l.dueTo === "Carrier" && l.payAt === "Prepaid")
-        .reduce((s: number, l: any) => s + (Number(l.amount) || 0), 0);
+        .reduce(
+          (s: number, l: any) =>
+            s + (!isNaN(Number(l.amount)) ? Number(l.amount) : 0),
+          0,
+        );
 
       const agentFromOther = remaining
         .filter((l: any) => l.dueTo === "Agent" && l.payAt === "Prepaid")
-        .reduce((s: number, l: any) => s + (Number(l.amount) || 0), 0);
+        .reduce(
+          (s: number, l: any) =>
+            s + (!isNaN(Number(l.amount)) ? Number(l.amount) : 0),
+          0,
+        );
 
       const carrierChargesPrepaid = Number(carrierFromOther.toFixed(2));
       const agentChargesPrepaid = Number(agentFromOther.toFixed(2));
 
       const breakdown = remaining
-        .filter((l: any) => Number(l.amount) > 0 && l.charge)
-        .map(
-          (l: any) =>
-            `${String(l.charge).trim().toUpperCase()}-${Number(l.amount).toFixed(2)}`,
-        )
+        .filter((l: any) => {
+          if (!l.charge) return false;
+          const isAgreed =
+            String(l.rate || "").trim().toLowerCase() === "as agreed" ||
+            String(l.amount || "").trim().toLowerCase() === "as agreed";
+          return isAgreed || Number(l.amount) > 0;
+        })
+        .map((l: any) => {
+          const isAgreed =
+            String(l.rate || "").trim().toLowerCase() === "as agreed" ||
+            String(l.amount || "").trim().toLowerCase() === "as agreed";
+          const code = String(l.charge).trim().toUpperCase();
+          if (isAgreed) return `${code}-AS AGREED`;
+          return `${code}-${Number(l.amount).toFixed(2)}`;
+        })
         .join(", ");
 
       const it = prev.items?.[0] || {};
@@ -765,10 +929,18 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
       updateData((prev: any) => {
         const items = [...prev.items];
         if (items[0]) {
+          const currentRate = items[0].rate;
+          const prevRate =
+            currentRate &&
+            String(currentRate).toLowerCase() !== "as per discussed" &&
+            String(currentRate).toLowerCase() !== "as agreed"
+              ? currentRate
+              : items[0].prevRate;
           items[0] = {
             ...items[0],
             rate: "As per discussed",
             total: "As per discussed",
+            prevRate,
           };
         }
         return {
@@ -784,20 +956,40 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
       updateData((prev: any) => {
         const items = [...prev.items];
         if (items[0]) {
+          const restoredRate =
+            items[0].prevRate &&
+            String(items[0].prevRate).toLowerCase() !== "as per discussed" &&
+            String(items[0].prevRate).toLowerCase() !== "as agreed"
+              ? items[0].prevRate
+              : "";
+          const chgWt =
+            Number(items[0].chargeableWeight) ||
+            Number(items[0].grossWeight) ||
+            0;
+          const rateNum = Number(restoredRate) || 0;
+          const restoredTotal =
+            restoredRate !== "" ? Number((chgWt * rateNum).toFixed(2)) : 0;
           items[0] = {
             ...items[0],
-            rate: "",
-            total: 0,
+            rate: restoredRate,
+            total: restoredTotal,
+          };
+          const otherPrepaid =
+            (Number(prev.charges?.carrierChargesPrepaid) || 0) +
+            (Number(prev.charges?.agentChargesPrepaid) || 0) +
+            (Number(prev.charges?.taxPrepaid) || 0) +
+            (Number(prev.charges?.valuationChargePrepaid) || 0);
+          return {
+            ...prev,
+            items,
+            charges: {
+              ...prev.charges,
+              prepaidWeightCharge: restoredTotal,
+              totalPrepaid: Number((restoredTotal + otherPrepaid).toFixed(2)),
+            },
           };
         }
-        return {
-          ...prev,
-          items,
-          charges: {
-            ...prev.charges,
-            prepaidWeightCharge: 0,
-          },
-        };
+        return prev;
       });
     }
   };
@@ -808,10 +1000,18 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
       updateData((prev: any) => {
         const items = [...prev.items];
         if (items[0]) {
+          const currentRate = items[0].rate;
+          const prevRate =
+            currentRate &&
+            String(currentRate).toLowerCase() !== "as agreed" &&
+            String(currentRate).toLowerCase() !== "as per discussed"
+              ? currentRate
+              : items[0].prevRate;
           items[0] = {
             ...items[0],
             rate: "as agreed",
             total: "as agreed",
+            prevRate,
           };
         }
         return {
@@ -827,20 +1027,40 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
       updateData((prev: any) => {
         const items = [...prev.items];
         if (items[0]) {
+          const restoredRate =
+            items[0].prevRate &&
+            String(items[0].prevRate).toLowerCase() !== "as agreed" &&
+            String(items[0].prevRate).toLowerCase() !== "as per discussed"
+              ? items[0].prevRate
+              : "";
+          const chgWt =
+            Number(items[0].chargeableWeight) ||
+            Number(items[0].grossWeight) ||
+            0;
+          const rateNum = Number(restoredRate) || 0;
+          const restoredTotal =
+            restoredRate !== "" ? Number((chgWt * rateNum).toFixed(2)) : 0;
           items[0] = {
             ...items[0],
-            rate: "",
-            total: 0,
+            rate: restoredRate,
+            total: restoredTotal,
+          };
+          const otherPrepaid =
+            (Number(prev.charges?.carrierChargesPrepaid) || 0) +
+            (Number(prev.charges?.agentChargesPrepaid) || 0) +
+            (Number(prev.charges?.taxPrepaid) || 0) +
+            (Number(prev.charges?.valuationChargePrepaid) || 0);
+          return {
+            ...prev,
+            items,
+            charges: {
+              ...prev.charges,
+              prepaidWeightCharge: restoredTotal,
+              totalPrepaid: Number((restoredTotal + otherPrepaid).toFixed(2)),
+            },
           };
         }
-        return {
-          ...prev,
-          items,
-          charges: {
-            ...prev.charges,
-            prepaidWeightCharge: 0,
-          },
-        };
+        return prev;
       });
     }
   };
@@ -868,6 +1088,12 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
 
       // Recalc every other-charge line
       const otherCharges = (prev.otherCharges || []).map((l: any) => {
+        const isAgreed =
+          String(l.rate || "").trim().toLowerCase() === "as agreed" ||
+          String(l.amount || "").trim().toLowerCase() === "as agreed";
+        if (isAgreed) {
+          return { ...l, rate: "as agreed", amount: "as agreed" };
+        }
         const r = Number(l.rate) || 0;
         let amt = 0;
         if (l.basis === "Per kg") amt = r * chgWt;
@@ -878,11 +1104,19 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
 
       const carrierFromOther = otherCharges
         .filter((l: any) => l.dueTo === "Carrier" && l.payAt === "Prepaid")
-        .reduce((s: number, l: any) => s + Number(l.amount || 0), 0);
+        .reduce(
+          (s: number, l: any) =>
+            s + (!isNaN(Number(l.amount)) ? Number(l.amount) : 0),
+          0,
+        );
 
       const agentFromOther = otherCharges
         .filter((l: any) => l.dueTo === "Agent" && l.payAt === "Prepaid")
-        .reduce((s: number, l: any) => s + Number(l.amount || 0), 0);
+        .reduce(
+          (s: number, l: any) =>
+            s + (!isNaN(Number(l.amount)) ? Number(l.amount) : 0),
+          0,
+        );
 
       // Carrier charges prepaid is from otherCharges if present, otherwise fallback to existing
       const carrierChargesPrepaid =
@@ -921,11 +1155,21 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
 
       // Auto-generated breakdown string: e.g. "UEC-1300.00, MMC-980.00, SSC-19500.00"
       const breakdown = otherCharges
-        .filter((l: any) => Number(l.amount) > 0 && l.charge)
-        .map(
-          (l: any) =>
-            `${String(l.charge).trim().toUpperCase()}-${Number(l.amount).toFixed(2)}`,
-        )
+        .filter((l: any) => {
+          if (!l.charge) return false;
+          const isAgreed =
+            String(l.rate || "").trim().toLowerCase() === "as agreed" ||
+            String(l.amount || "").trim().toLowerCase() === "as agreed";
+          return isAgreed || Number(l.amount) > 0;
+        })
+        .map((l: any) => {
+          const isAgreed =
+            String(l.rate || "").trim().toLowerCase() === "as agreed" ||
+            String(l.amount || "").trim().toLowerCase() === "as agreed";
+          const code = String(l.charge).trim().toUpperCase();
+          if (isAgreed) return `${code}-AS AGREED`;
+          return `${code}-${Number(l.amount).toFixed(2)}`;
+        })
         .join(", ");
 
       return {
@@ -1471,11 +1715,23 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                     </div>
                     <input
                       type="text"
-                      value={data.carrierName || ""}
+                      value={
+                        data.carrierName &&
+                        (data.carrierName.trim().toUpperCase() !== "EGYPT AIR" ||
+                          (data.awbPrefix || "").replace(/\D/g, "") === "077")
+                          ? data.carrierName
+                          : matchedAirline
+                          ? matchedAirline.name.toUpperCase()
+                          : data.carrierName || ""
+                      }
                       onChange={(e) =>
                         setTopLevel("carrierName", e.target.value)
                       }
-                      placeholder="EGYPT AIR"
+                      placeholder={
+                        matchedAirline
+                          ? matchedAirline.name.toUpperCase()
+                          : "AIRLINE CARRIER"
+                      }
                       className={INPUT_BASE}
                     />
                   </div>
@@ -2284,7 +2540,7 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                 {/* Table */}
                 <div className="border border-slate-200 rounded-lg overflow-hidden">
                   {/* Header row */}
-                  <div className="grid grid-cols-[28px_1.6fr_0.9fr_0.8fr_1fr_0.9fr_0.9fr_28px] gap-1 bg-slate-100 px-2 py-1.5 text-[10px] font-bold text-slate-600 uppercase tracking-wide items-center">
+                  <div className="grid grid-cols-[28px_1.5fr_0.85fr_1fr_0.95fr_0.85fr_0.85fr_28px] gap-1 bg-slate-100 px-2 py-1.5 text-[10px] font-bold text-slate-600 uppercase tracking-wide items-center">
                     <span>#</span>
                     <span>Charge</span>
                     <span>Basis</span>
@@ -2297,84 +2553,122 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
 
                   {/* Rows */}
                   {otherCharges.length > 0 ? (
-                    otherCharges.map((line, idx) => (
-                      <div
-                        key={line.id || idx}
-                        className="grid grid-cols-[28px_1.6fr_0.9fr_0.8fr_1fr_0.9fr_0.9fr_28px] gap-1 px-2 py-1 items-center border-t border-slate-100"
-                      >
-                        <span className="text-[11px] text-slate-500 font-mono">
-                          {idx + 1}
-                        </span>
-                        <input
-                          type="text"
-                          value={line.charge}
-                          onChange={(e) =>
-                            setOtherCharge(idx, "charge", e.target.value)
-                          }
-                          placeholder="Fuel Surcharge (FSC)"
-                          className={`${INPUT_BASE} !py-1`}
-                        />
-                        <select
-                          value={line.basis}
-                          onChange={(e) =>
-                            setOtherCharge(idx, "basis", e.target.value)
-                          }
-                          className={`${INPUT_BASE} !py-1`}
+                    otherCharges.map((line, idx) => {
+                      const isLineAsAgreed =
+                        String(line.rate || "").trim().toLowerCase() ===
+                        "as agreed";
+
+                      return (
+                        <div
+                          key={line.id || idx}
+                          className="grid grid-cols-[28px_1.5fr_0.85fr_1fr_0.95fr_0.85fr_0.85fr_28px] gap-1 px-2 py-1.5 items-start border-t border-slate-100"
                         >
-                          <option value="Per kg">Per kg</option>
-                          <option value="Per piece">Per piece</option>
-                          <option value="Flat">Flat</option>
-                        </select>
-                        <input
-                          type="number"
-                          step="any"
-                          value={line.rate}
-                          onChange={(e) =>
-                            setOtherCharge(idx, "rate", e.target.value)
-                          }
-                          placeholder="0.00"
-                          className={`${INPUT_BASE} !py-1 text-right`}
-                        />
-                        <input
-                          type="text"
-                          readOnly
-                          value={
-                            Number(line.amount)
-                              ? Number(line.amount).toFixed(2)
-                              : ""
-                          }
-                          className={`${INPUT_BASE} !py-1 text-right font-semibold bg-slate-50`}
-                        />
-                        <select
-                          value={line.dueTo}
-                          onChange={(e) =>
-                            setOtherCharge(idx, "dueTo", e.target.value)
-                          }
-                          className={`${INPUT_BASE} !py-1`}
-                        >
-                          <option value="Carrier">Carrier</option>
-                          <option value="Agent">Agent</option>
-                        </select>
-                        <select
-                          value={line.payAt}
-                          onChange={(e) =>
-                            setOtherCharge(idx, "payAt", e.target.value)
-                          }
-                          className={`${INPUT_BASE} !py-1`}
-                        >
-                          <option value="Prepaid">Prepaid</option>
-                          <option value="Collect">Collect</option>
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() => removeOtherCharge(idx)}
-                          className="text-red-400 hover:text-red-600 hover:bg-red-50 rounded p-1 transition-colors cursor-pointer"
-                          title="Remove charge"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ))
+                          <span className="text-[11px] text-slate-500 font-mono pt-1">
+                            {idx + 1}
+                          </span>
+                          <input
+                            type="text"
+                            value={line.charge}
+                            onChange={(e) =>
+                              setOtherCharge(idx, "charge", e.target.value)
+                            }
+                            placeholder="Fuel Surcharge (FSC)"
+                            className={`${INPUT_BASE} !py-1`}
+                          />
+                          <select
+                            value={line.basis}
+                            onChange={(e) =>
+                              setOtherCharge(idx, "basis", e.target.value)
+                            }
+                            className={`${INPUT_BASE} !py-1`}
+                          >
+                            <option value="Per kg">Per kg</option>
+                            <option value="Per piece">Per piece</option>
+                            <option value="Flat">Flat</option>
+                          </select>
+                          <div className="flex flex-col">
+                            <input
+                              type="text"
+                              value={line.rate ?? ""}
+                              onChange={(e) =>
+                                setOtherCharge(idx, "rate", e.target.value)
+                              }
+                              placeholder={isLineAsAgreed ? "as agreed" : "0.00"}
+                              className={`${INPUT_BASE} !py-1 text-right ${
+                                isLineAsAgreed
+                                  ? "bg-blue-50/60 font-semibold text-[#2C5EAD]"
+                                  : ""
+                              }`}
+                            />
+                            <label className="inline-flex items-center gap-1 mt-0.5 cursor-pointer select-none text-[9px] text-slate-600 hover:text-[#2C5EAD] font-medium whitespace-nowrap">
+                              <input
+                                type="checkbox"
+                                checked={isLineAsAgreed}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setOtherCharge(idx, "rate", "as agreed");
+                                  } else {
+                                    setOtherCharge(
+                                      idx,
+                                      "rate",
+                                      line.prevRate !== undefined &&
+                                        line.prevRate !== "" &&
+                                        line.prevRate !== "as agreed"
+                                        ? line.prevRate
+                                        : "",
+                                    );
+                                  }
+                                }}
+                                className="w-3 h-3 text-[#2C5EAD] rounded border-slate-300 focus:ring-[#2C5EAD]/25 cursor-pointer"
+                              />
+                              <span>as agreed</span>
+                            </label>
+                          </div>
+                          <input
+                            type="text"
+                            readOnly
+                            value={
+                              isLineAsAgreed
+                                ? "as agreed"
+                                : Number(line.amount)
+                                ? Number(line.amount).toFixed(2)
+                                : ""
+                            }
+                            className={`${INPUT_BASE} !py-1 text-right font-semibold bg-slate-50 ${
+                              isLineAsAgreed ? "text-[#2C5EAD] italic" : ""
+                            }`}
+                          />
+                          <select
+                            value={line.dueTo}
+                            onChange={(e) =>
+                              setOtherCharge(idx, "dueTo", e.target.value)
+                            }
+                            className={`${INPUT_BASE} !py-1`}
+                          >
+                            <option value="Carrier">Carrier</option>
+                            <option value="Agent">Agent</option>
+                          </select>
+                          <select
+                            value={line.payAt}
+                            onChange={(e) =>
+                              setOtherCharge(idx, "payAt", e.target.value)
+                            }
+                            className={`${INPUT_BASE} !py-1`}
+                          >
+                            <option value="Prepaid">Prepaid</option>
+                            <option value="Collect">Collect</option>
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => removeOtherCharge(idx)}
+                            className="text-red-400 hover:text-red-600 hover:bg-red-50 rounded p-1 transition-colors cursor-pointer mt-0.5"
+                            title="Remove charge"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })
                   ) : (
                     <div className="px-2 py-3 text-center text-[11px] text-slate-400 border-t border-slate-100">
                       No other charges added yet.
