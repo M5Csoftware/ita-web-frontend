@@ -20,6 +20,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { IssuingAgentProfile, MawbItem, HawbItem } from "@/types/iata";
+import { IATA_AIRLINES } from "@/lib/iata-data";
 import { MawbSheet } from "./MawbSheet";
 import { MawbPrintEditorModal } from "./MawbPrintEditorModal";
 import { MawbData } from "@/types/mawb";
@@ -119,12 +120,28 @@ function buildMawbData(
 ): MawbData {
   const raw = (m.mawbNumber || "").trim();
   const dashIdx = raw.indexOf("-");
-  let prefix = "077";
+  let prefix = (m.airlinePrefix || "").trim() || "077";
   let serial = raw;
   if (dashIdx > 0) {
-    prefix = raw.slice(0, dashIdx).trim() || "077";
+    prefix = raw.slice(0, dashIdx).trim() || prefix;
     serial = raw.slice(dashIdx + 1).trim();
   }
+  const cleanPrefix = prefix.replace(/\D/g, "");
+  const matchedAirline = IATA_AIRLINES.find(
+    (a) =>
+      a.prefix === cleanPrefix ||
+      a.prefix.padStart(3, "0") === cleanPrefix.padStart(3, "0"),
+  );
+  const resolvedCarrier =
+    m.carrierName &&
+    m.carrierName.trim() &&
+    (m.carrierName.trim().toUpperCase() !== "EGYPT AIR" ||
+      cleanPrefix === "077")
+      ? m.carrierName.trim().toUpperCase()
+      : matchedAirline
+      ? matchedAirline.name.toUpperCase()
+      : m.carrierName || "AIRLINE CARRIER";
+
   const digits = serial.replace(/\s+/g, "");
   if (/^\d{8}$/.test(digits)) {
     serial = `${digits.slice(0, 4)} ${digits.slice(4)}`;
@@ -168,7 +185,7 @@ function buildMawbData(
     awbPrefix: prefix,
     awbSerial: serial,
     departureAirportCode: m.origin || "DEL",
-    carrierName: "EGYPT AIR",
+    carrierName: resolvedCarrier,
     shipper: {
       nameAndAddress: [m.shipperName, m.shipperAddress]
         .filter(Boolean)

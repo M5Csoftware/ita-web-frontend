@@ -3,6 +3,7 @@
 
 import React from "react";
 import { MawbData } from "@/types/mawb";
+import { IATA_AIRLINES } from "@/lib/iata-data";
 
 interface MawbSheetProps {
   data: MawbData;
@@ -137,6 +138,29 @@ export function MawbSheet({
   const showPage1 = activePage === "both" || activePage === "face";
   const showPage2 = activePage === "both" || activePage === "conditions";
 
+  const displayCarrierName = (() => {
+    const rawPrefix = (data.awbPrefix || "").includes("-")
+      ? (data.awbPrefix || "").split("-")[0].trim()
+      : (data.awbPrefix || "").trim();
+    const cleanPrefix = rawPrefix.replace(/\D/g, "");
+    const matched = IATA_AIRLINES.find(
+      (a) =>
+        a.prefix === cleanPrefix ||
+        a.prefix === rawPrefix ||
+        a.prefix.padStart(3, "0") === cleanPrefix.padStart(3, "0"),
+    );
+    if (
+      data.carrierName &&
+      data.carrierName.trim() &&
+      (data.carrierName.trim().toUpperCase() !== "EGYPT AIR" ||
+        cleanPrefix === "077")
+    ) {
+      return data.carrierName.trim().toUpperCase();
+    }
+    if (matched) return matched.name.toUpperCase();
+    return data.carrierName?.trim().toUpperCase() || "";
+  })();
+
   const item = data.items[0] || {
     pieces: "",
     grossWeight: "",
@@ -148,6 +172,136 @@ export function MawbSheet({
     total: "",
     natureAndQuantity: "",
   };
+
+  const otherChargesFormattedText: string = (() => {
+    // 1. First extract from structured otherCharges if present
+    const structured = (data as any).otherCharges;
+    if (Array.isArray(structured) && structured.length > 0) {
+      const valid = structured
+        .filter((line: any) => {
+          if (!line) return false;
+          const charge = String(line.charge || "").trim();
+          const amt = Number(line.amount);
+          const isAgreed =
+            String(line.amount || "").trim().toLowerCase() === "as agreed" ||
+            String(line.rate || "").trim().toLowerCase() === "as agreed";
+          return (
+            isAgreed ||
+            (charge !== "" && charge !== "—") ||
+            (!isNaN(amt) && amt > 0)
+          );
+        })
+        .map((line: any) => {
+          const code = String(line.charge || "CHG").trim().toUpperCase();
+          const isAgreed =
+            String(line.amount || "").trim().toLowerCase() === "as agreed" ||
+            String(line.rate || "").trim().toLowerCase() === "as agreed";
+          if (isAgreed) {
+            return `${code}-AS AGREED`;
+          }
+          const num = Number(line.amount);
+          const amtStr =
+            !isNaN(num) && line.amount !== "" && line.amount !== null
+              ? num.toFixed(2)
+              : String(line.amount || "0.00").trim();
+          return `${code}-${amtStr}`;
+        });
+      if (valid.length > 0) {
+        return valid.join(", ");
+      }
+    }
+
+    // 2. Fallback to otherChargesBreakdown string e.g. "UEC-1300.00, MMC-980.00, SSC-19500.00" or "FSC: 29076.00  SSC: 10573.00"
+    const rawBreakdown = data.charges.otherChargesBreakdown?.trim();
+    if (rawBreakdown) {
+      if (rawBreakdown.includes(":")) {
+        const parts = rawBreakdown.split(/(?:\r?\n|;|\s{2,}|,)/);
+        const converted: string[] = [];
+        for (const part of parts) {
+          const trimmed = part.trim();
+          if (!trimmed) continue;
+          const colonIdx = trimmed.indexOf(":");
+          if (colonIdx !== -1) {
+            const label = trimmed.slice(0, colonIdx).trim().toUpperCase();
+            const rawAmt = trimmed.slice(colonIdx + 1).trim().replace(/,/g, "");
+            const num = Number(rawAmt);
+            const amtStr = !isNaN(num) ? num.toFixed(2) : rawAmt;
+            converted.push(`${label}-${amtStr}`);
+          } else {
+            converted.push(trimmed.toUpperCase());
+          }
+        }
+        if (converted.length > 0) {
+          return converted.join(", ");
+        }
+      }
+      return rawBreakdown.toUpperCase();
+    }
+
+    // 3. Fallback to carrier / agent charges prepaid
+    const fallbacks: string[] = [];
+    if (
+      data.charges.carrierChargesPrepaid &&
+      Number(data.charges.carrierChargesPrepaid) > 0
+    ) {
+      fallbacks.push(
+        `CARRIER-${Number(data.charges.carrierChargesPrepaid).toFixed(2)}`,
+      );
+    }
+    if (
+      data.charges.agentChargesPrepaid &&
+      Number(data.charges.agentChargesPrepaid) > 0
+    ) {
+      fallbacks.push(
+        `AGENT-${Number(data.charges.agentChargesPrepaid).toFixed(2)}`,
+      );
+    }
+    if (fallbacks.length > 0) {
+      return fallbacks.join(", ");
+    }
+
+    return "";
+  })();
+
+  const displayCarrierChargesPrepaid = (() => {
+    const direct = data.charges.carrierChargesPrepaid;
+    if (
+      direct !== undefined &&
+      direct !== null &&
+      direct !== "" &&
+      Number(direct) > 0
+    ) {
+      return direct;
+    }
+    const structured = (data as any).otherCharges;
+    if (Array.isArray(structured) && structured.length > 0) {
+      const sum = structured
+        .filter((l: any) => l.dueTo === "Carrier" && l.payAt === "Prepaid")
+        .reduce((acc: number, l: any) => acc + (Number(l.amount) || 0), 0);
+      if (sum > 0) return sum;
+    }
+    return direct;
+  })();
+
+  const displayAgentChargesPrepaid = (() => {
+    const direct = data.charges.agentChargesPrepaid;
+    if (
+      direct !== undefined &&
+      direct !== null &&
+      direct !== "" &&
+      Number(direct) > 0
+    ) {
+      return direct;
+    }
+    const structured = (data as any).otherCharges;
+    if (Array.isArray(structured) && structured.length > 0) {
+      const sum = structured
+        .filter((l: any) => l.dueTo === "Agent" && l.payAt === "Prepaid")
+        .reduce((acc: number, l: any) => acc + (Number(l.amount) || 0), 0);
+      if (sum > 0) return sum;
+    }
+    return direct;
+  })();
 
   return (
     <div
@@ -228,7 +382,7 @@ export function MawbSheet({
                         AIR WAYBILL
                       </span>
                       <span className="font-bold text-[12px] tracking-wider uppercase leading-none">
-                        {data.carrierName || "EGYPT AIR"}
+                        {displayCarrierName || "AIRLINE CARRIER"}
                       </span>
                     </div>
                     <div className="text-[7.5px] leading-tight text-neutral-800 mt-0.5">
@@ -694,7 +848,45 @@ export function MawbSheet({
                       </span>
                     </div>
                     <div className="pt-2 pl-2 pr-1 text-[6.5px] font-bold leading-[1.28] whitespace-pre-line uppercase text-black">
-                      {item.natureAndQuantity}
+                      {(() => {
+                        const raw = item.natureAndQuantity || "";
+                        if (/\bDIM\s*:/i.test(raw)) {
+                          return raw;
+                        }
+                        if (item.dimensions && item.dimensions.length > 0) {
+                          const valid = item.dimensions.filter(
+                            (d) =>
+                              Number(d.lengthCm) > 0 &&
+                              Number(d.widthCm) > 0 &&
+                              Number(d.heightCm) > 0 &&
+                              Number(d.pieces) > 0,
+                          );
+                          if (valid.length > 0) {
+                            const parts = valid.map(
+                              (d) =>
+                                `${d.lengthCm}X${d.widthCm}X${d.heightCm}/${d.pieces}`,
+                            );
+                            const totalVol = valid.reduce(
+                              (acc, d) =>
+                                acc +
+                                (Number(d.lengthCm) *
+                                  Number(d.widthCm) *
+                                  Number(d.heightCm) *
+                                  Number(d.pieces)) /
+                                  6000,
+                              0,
+                            );
+                            const roundedVol = item.volumetricWeightKg
+                              ? Math.round(Number(item.volumetricWeightKg))
+                              : Math.round(totalVol);
+                            const dimBlock = `DIM:${parts.join(" , ")} CMT\nVOL WT: ${roundedVol} KGS`;
+                            return raw.trim()
+                              ? `${raw.trim()}\n\n${dimBlock}`
+                              : dimBlock;
+                          }
+                        }
+                        return raw;
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -891,9 +1083,9 @@ export function MawbSheet({
                     <div className="flex min-h-[14px]">
                       <div className="w-1/2 border-r border-black p-1 flex items-end justify-end relative">
                         <span className="font-bold text-[8px]">
-                          {fmt(data.charges.agentChargesPrepaid)}
+                          {fmt(displayAgentChargesPrepaid)}
                         </span>
-                        {!data.charges.agentChargesPrepaid && <DiagonalSlash />}
+                        {!displayAgentChargesPrepaid && <DiagonalSlash />}
                       </div>
                       <div className="w-1/2 p-1 flex items-end justify-end relative">
                         <span className="font-bold text-[8px]">
@@ -913,7 +1105,7 @@ export function MawbSheet({
                     <div className="flex min-h-[16px]">
                       <div className="w-1/2 border-r border-black p-1 flex items-end justify-end relative">
                         <span className="font-bold text-[8.5px]">
-                          {fmt(data.charges.carrierChargesPrepaid)}
+                          {fmt(displayCarrierChargesPrepaid)}
                         </span>
                       </div>
                       <div className="w-1/2 p-1 flex items-end justify-end relative">
@@ -970,126 +1162,20 @@ export function MawbSheet({
                 </div>
 
                 <div className="w-[62%] flex flex-col justify-between">
-                  <div className="border-b border-black min-h-[34px]">
-                    <div className="text-[7px] text-neutral-800 leading-none px-1.5 pt-1">
+                  <div className="border-b border-black min-h-[46px] p-1.5 flex flex-col justify-start">
+                    <div className="text-[7px] text-neutral-800 leading-none font-bold uppercase tracking-wider mb-1">
                       Other Charges
                     </div>
 
-                    {/* IATA-style header row */}
-                    <div className="grid grid-cols-[24px_1.6fr_1fr_1fr_0.8fr_1fr_0.9fr] text-[5.5px] font-bold uppercase tracking-wide border-y border-black mt-0.5">
-                      <div className="border-r border-black text-center py-0.5">
-                        #
+                    {otherChargesFormattedText ? (
+                      <div className="text-[8.5px] font-bold text-black uppercase tracking-tight leading-normal px-0.5 pt-0.5">
+                        {otherChargesFormattedText}
                       </div>
-                      <div className="border-r border-black px-1 py-0.5">
-                        Charge
+                    ) : (
+                      <div className="text-[7.5px] font-mono text-neutral-400 italic px-0.5">
+                        NIL
                       </div>
-                      <div className="border-r border-black px-1 py-0.5">
-                        Basis
-                      </div>
-                      <div className="border-r border-black px-1 py-0.5 text-right">
-                        Rate
-                      </div>
-                      <div className="border-r border-black px-1 py-0.5 text-right">
-                        Amount
-                      </div>
-                      <div className="border-r border-black px-1 py-0.5">
-                        Due to
-                      </div>
-                      <div className="px-1 py-0.5">Pay at</div>
-                    </div>
-
-                    {/* Rows */}
-                    <div className="text-[6.5px] leading-[1.15]">
-                      {(data as any).otherCharges &&
-                      (data as any).otherCharges.length > 0 ? (
-                        (data as any).otherCharges.map(
-                          (line: any, idx: number) => (
-                            <div
-                              key={line.id || idx}
-                              className="grid grid-cols-[24px_1.6fr_1fr_1fr_0.8fr_1fr_0.9fr] border-b border-black last:border-b-0"
-                            >
-                              <div className="border-r border-black text-center py-0.5 font-mono">
-                                {idx + 1}
-                              </div>
-                              <div className="border-r border-black px-1 py-0.5 truncate">
-                                {line.charge || ""}
-                              </div>
-                              <div className="border-r border-black px-1 py-0.5 truncate">
-                                {line.basis || ""}
-                              </div>
-                              <div className="border-r border-black px-1 py-0.5 text-right font-mono">
-                                {line.rate !== "" && line.rate !== undefined
-                                  ? fmt(line.rate)
-                                  : ""}
-                              </div>
-                              <div className="border-r border-black px-1 py-0.5 text-right font-mono font-bold">
-                                {line.amount !== "" && line.amount !== undefined
-                                  ? fmt(line.amount)
-                                  : ""}
-                              </div>
-                              <div className="border-r border-black px-1 py-0.5 truncate">
-                                {line.dueTo || ""}
-                              </div>
-                              <div className="px-1 py-0.5 truncate">
-                                {line.payAt || ""}
-                              </div>
-                            </div>
-                          ),
-                        )
-                      ) : (
-                        <div className="grid grid-cols-[24px_1.6fr_1fr_1fr_0.8fr_1fr_0.9fr] border-b border-black">
-                          <div className="border-r border-black text-center py-0.5 font-mono text-neutral-400">
-                            1
-                          </div>
-                          <div className="border-r border-black px-1 py-0.5 text-neutral-400">
-                            —
-                          </div>
-                          <div className="border-r border-black px-1 py-0.5 text-neutral-400">
-                            —
-                          </div>
-                          <div className="border-r border-black px-1 py-0.5 text-right text-neutral-400">
-                            —
-                          </div>
-                          <div className="border-r border-black px-1 py-0.5 text-right text-neutral-400">
-                            —
-                          </div>
-                          <div className="border-r border-black px-1 py-0.5 text-neutral-400">
-                            —
-                          </div>
-                          <div className="px-1 py-0.5 text-neutral-400">—</div>
-                        </div>
-                      )}
-
-                      {/* Empty filler rows to keep the box height consistent (IATA layout) */}
-                      {Array.from({
-                        length: Math.max(
-                          0,
-                          3 - ((data as any).otherCharges?.length || 0),
-                        ),
-                      }).map((_, i) => (
-                        <div
-                          key={`filler-${i}`}
-                          className="grid grid-cols-[24px_1.6fr_1fr_1fr_0.8fr_1fr_0.9fr] border-b border-black last:border-b-0 h-[9px]"
-                        >
-                          <div className="border-r border-black" />
-                          <div className="border-r border-black" />
-                          <div className="border-r border-black" />
-                          <div className="border-r border-black" />
-                          <div className="border-r border-black" />
-                          <div className="border-r border-black" />
-                          <div />
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Fallback breakdown text (kept for compatibility, hidden if rows exist) */}
-                    {(!(data as any).otherCharges ||
-                      (data as any).otherCharges.length === 0) &&
-                      data.charges.otherChargesBreakdown && (
-                        <div className="font-bold text-[7px] tracking-wide px-1.5 py-0.5 border-t border-black">
-                          {data.charges.otherChargesBreakdown}
-                        </div>
-                      )}
+                    )}
                   </div>
 
                   <div className="p-1.5 flex flex-col justify-between min-h-[64px]">

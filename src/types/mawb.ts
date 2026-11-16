@@ -1,4 +1,5 @@
 // src/types/mawb.ts
+import { DimensionEntry } from "./iata";
 
 export interface MawbItemLine {
   pieces: string | number;
@@ -10,6 +11,9 @@ export interface MawbItemLine {
   rate?: string | number;
   total?: string | number;
   natureAndQuantity?: string;
+  dimensions?: DimensionEntry[];
+  volumetricWeightKg?: number | string;
+  prevRate?: string | number;
 }
 
 export interface MawbRouteFlight {
