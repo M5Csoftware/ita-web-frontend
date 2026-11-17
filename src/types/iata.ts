@@ -154,6 +154,10 @@ export interface DocketItem {
   consigneeAddress: string;
   consigneePhone: string;
   consigneeGst: string;
+  customerName?: string;
+  customerAddress?: string;
+  customerPhone?: string;
+  customerGst?: string;
   pieces: number;
   packageType: string;
   actualWeightKg: number;

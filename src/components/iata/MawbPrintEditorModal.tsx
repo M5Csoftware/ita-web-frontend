@@ -2493,7 +2493,7 @@ export const MawbPrintEditorModal: React.FC<MawbPrintEditorModalProps> = ({
                         }
                         className="w-3.5 h-3.5 text-[#2C5EAD] rounded border-slate-300 focus:ring-[#2C5EAD]/25 cursor-pointer"
                       />
-                      <span>As per discussed</span>
+                      <span>As per Agreed</span>
                     </label>
                   </div>
                   <div>

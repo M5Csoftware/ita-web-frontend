@@ -79,6 +79,14 @@ type InvoiceOption = {
   freight: number;
   fuel: number;
   security: number;
+  /** ✅ Docket-derived billing party (auto-filled from the docket that issued this MAWB) */
+  docketCustomer?: {
+    customerName: string;
+    customerAddress: string;
+    customerPhone: string;
+    customerGstId: string;
+    source: "CUSTOMER" | "CONSIGNOR";
+  };
 };
 
 type FinalizedManifestMawb = {
@@ -312,6 +320,21 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
     FinalizedManifestMawb[]
   >([]);
 
+  // ✅ NEW — Docket customer lookup cache (mawbNumber → docket customer)
+  const [docketCustomers, setDocketCustomers] = useState<
+    Record<
+      string,
+      {
+        customerName: string;
+        customerAddress: string;
+        customerPhone: string;
+        customerGstId: string;
+        source: "CUSTOMER" | "CONSIGNOR";
+      }
+    >
+  >({});
+  const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
+
   const [billToParty, setBillToParty] = useState<BillToParty>("SHIPPER");
   const [customerName, setCustomerName] = useState("");
   const [selectedReferences, setSelectedReferences] = useState<string[]>([]);
@@ -419,9 +442,54 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
     return Array.from(map.values());
   }, [parentMawbs, fetchedMawbs]);
 
+  // ✅ NEW — Look up docket customers for all MAWB numbers in play.
+  //    Runs once per distinct set of MAWB numbers.
+  useEffect(() => {
+    if (allMawbs.length === 0) return;
+
+    const numbers = allMawbs.map((m) => m.mawbNumber);
+    const missing = numbers.filter((num) => !(num in docketCustomers));
+    if (missing.length === 0) return;
+
+    let cancelled = false;
+    const run = async () => {
+      setIsLoadingCustomers(true);
+      try {
+        const data = await apiFetch<{
+          success: boolean;
+          customers: Record<
+            string,
+            {
+              customerName: string;
+              customerAddress: string;
+              customerPhone: string;
+              customerGstId: string;
+              source: "CUSTOMER" | "CONSIGNOR";
+            }
+          >;
+        }>("/api/invoices/lookup-customer", {
+          method: "POST",
+          body: JSON.stringify({ mawbNumbers: missing }),
+        });
+        if (cancelled) return;
+        setDocketCustomers((prev) => ({ ...prev, ...(data.customers || {}) }));
+      } catch (err) {
+        console.warn("Failed to lookup docket customers:", err);
+      } finally {
+        if (!cancelled) setIsLoadingCustomers(false);
+      }
+    };
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allMawbs]);
+
   const gstRateInput = String(gstType === "ZERO_RATED" ? 0 : defaultGstRate);
 
-  // ✅ UPDATED: Check against `allMawbs` (merged state)
+  // ✅ UPDATED: Attach docket customer to each option
   const shipmentOptions = useMemo(() => {
     const options: InvoiceOption[] = [];
 
@@ -447,15 +515,16 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
         ? ` · FFM ${manifestInfo.manifestNumber}`
         : "";
 
+      // ✅ Resolve customer: docket billing party wins over MAWB shipper/consignee
+      const docketCustomer = docketCustomers[mawb.mawbNumber];
+      const resolvedCustomerName = docketCustomer?.customerName
+        ? docketCustomer.customerName
+        : getCustomerName(mawb, undefined, billToParty, agentProfile.name);
+
       const mawbOption: InvoiceOption = {
         reference: `MAWB:${mawb.mawbNumber}`,
         label: `${mawb.mawbNumber}${manifestTag}`,
-        customerName: getCustomerName(
-          mawb,
-          undefined,
-          billToParty,
-          agentProfile.name,
-        ),
+        customerName: resolvedCustomerName,
         mawb,
         pieces: mawb.pieces,
         grossWeightKg: mawb.grossWeightKg,
@@ -467,6 +536,7 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
         freight: mawb.freightAmount || 0,
         fuel: mawb.fuelSurcharge || 0,
         security: mawb.securitySurcharge || 0,
+        docketCustomer,
       };
 
       if (
@@ -491,12 +561,7 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
         const hawbOption: InvoiceOption = {
           reference: `HAWB:${hawb.hawbNumber}`,
           label: `${hawb.hawbNumber} · ${mawb.mawbNumber}${manifestTag}`,
-          customerName: getCustomerName(
-            mawb,
-            hawb.hawbNumber,
-            billToParty,
-            agentProfile.name,
-          ),
+          customerName: resolvedCustomerName,
           mawb,
           hawbNumber: hawb.hawbNumber,
           pieces: hawb.pieces,
@@ -509,6 +574,7 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
           freight: Number(((mawb.freightAmount || 0) * ratio).toFixed(2)),
           fuel: Number(((mawb.fuelSurcharge || 0) * ratio).toFixed(2)),
           security: Number(((mawb.securitySurcharge || 0) * ratio).toFixed(2)),
+          docketCustomer,
         };
         if (
           !invoices.some((invoice) =>
@@ -527,6 +593,7 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
     billToParty,
     agentProfile.name,
     invoices,
+    docketCustomers,
   ]);
 
   const customerOptions = Array.from(
@@ -546,6 +613,16 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
     billToParty === "AGENT"
       ? agentProfile.gstNumber
       : (selectedPartner?.taxOrGstId ?? "");
+
+  // ✅ NEW — Resolve the "docket customer" profile for the selected shipments.
+  //    If they came from a docket (billing party or consignor fallback), use
+  //    its address / GST / phone on the invoice draft.
+  const selectedDocketCustomer = useMemo(() => {
+    for (const opt of selectedOptions) {
+      if (opt.docketCustomer) return opt.docketCustomer;
+    }
+    return null;
+  }, [selectedOptions]);
 
   const dateFilteredInvoices = invoices.filter(
     (invoice) =>
@@ -595,10 +672,14 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
   const changeCustomer = (name: string) => {
     setCustomerName(name);
     setSelectedReferences([]);
+    // Prefer the docket-derived GST ID if we have one for this customer's shipments
+    const docketGst = shipmentOptions.find(
+      (opt) => opt.customerName === name && opt.docketCustomer?.customerGstId,
+    )?.docketCustomer?.customerGstId;
     const customerGstId =
       billToParty === "AGENT"
         ? agentProfile.gstNumber
-        : (getPartner(partners, name)?.taxOrGstId ?? "");
+        : (docketGst ?? getPartner(partners, name)?.taxOrGstId ?? "");
     setGstType(inferGstType(customerGstId, agentProfile.gstNumber));
   };
 
@@ -615,6 +696,20 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
         option.reference,
       ];
     });
+
+    // ✅ NEW — If no customer is picked yet, auto-fill from this shipment's
+    //    docket customer so the user doesn't have to retype anything.
+    if (!customerName && option.customerName) {
+      setCustomerName(option.customerName);
+      if (option.docketCustomer?.customerGstId) {
+        setGstType(
+          inferGstType(
+            option.docketCustomer.customerGstId,
+            agentProfile.gstNumber,
+          ),
+        );
+      }
+    }
   };
 
   const createDraft = async () => {
@@ -726,15 +821,16 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
       }),
     );
 
+    // ✅ Prefer docket-derived customer address/GST/phone when present
+    const docketBilling = selectedDocketCustomer;
+
     const invoice: InvoiceDraftData = {
       mawbNumber: selectedOptions[0].mawb.mawbNumber,
       customerName: currentCustomer,
-      customerAddress: getCustomerAddress(
-        selectedOptions[0].mawb,
-        billToParty,
-        agentProfile,
-      ),
-      customerGstId: selectedGstId,
+      customerAddress:
+        docketBilling?.customerAddress ||
+        getCustomerAddress(selectedOptions[0].mawb, billToParty, agentProfile),
+      customerGstId: docketBilling?.customerGstId || selectedGstId,
       sacCode,
       billToParty,
       date,
@@ -1282,6 +1378,28 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
             </label>
           </div>
 
+          {isLoadingCustomers && (
+            <p className="mt-3 flex items-center gap-2 text-xs text-slate-500">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Loading customer details from linked dockets…
+            </p>
+          )}
+
+          {selectedDocketCustomer && (
+            <p className="mt-3 rounded-lg bg-blue-50 p-3 text-xs text-blue-800">
+              <strong>Billing party from docket:</strong>{" "}
+              {selectedDocketCustomer.customerName}
+              {selectedDocketCustomer.customerGstId
+                ? ` · GSTIN ${selectedDocketCustomer.customerGstId}`
+                : ""}
+              {selectedDocketCustomer.source === "CONSIGNOR" && (
+                <span className="ml-1 text-blue-600">
+                  (consignor fallback — docket had no customer)
+                </span>
+              )}
+            </p>
+          )}
+
           <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-[1.4fr_1fr]">
             <div>
               <div className="mb-2 flex items-center justify-between gap-3">
@@ -1320,6 +1438,14 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
                             ? ` · ${option.flightNumber}`
                             : ""}
                         </span>
+                        {option.docketCustomer && (
+                          <span className="mt-1 inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                            Billing: {option.docketCustomer.customerName}
+                            {option.docketCustomer.source === "CONSIGNOR"
+                              ? " (consignor)"
+                              : ""}
+                          </span>
+                        )}
                       </span>
                       <span className="text-xs font-semibold text-slate-600">
                         {formatCurrency(
@@ -1405,8 +1531,11 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
               </label>
               {currentCustomer && (
                 <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
-                  GSTIN: {selectedGstId || "Not provided (unregistered)"} ·{" "}
-                  {selectedOptions.length} shipment(s) selected
+                  GSTIN:{" "}
+                  {selectedDocketCustomer?.customerGstId ||
+                    selectedGstId ||
+                    "Not provided (unregistered)"}{" "}
+                  · {selectedOptions.length} shipment(s) selected
                 </p>
               )}
             </div>
@@ -1536,7 +1665,11 @@ export const InvoiceGenerationView: React.FC<InvoiceGenerationViewProps> = ({
               })();
               return (
                 <article
-                  key={invoice.id || (invoice as any)._id || Math.random().toString()}
+                  key={
+                    invoice.id ||
+                    (invoice as any)._id ||
+                    Math.random().toString()
+                  }
                   data-print-active={opened}
                   className="invoice-print-target overflow-hidden rounded-xl border border-slate-200"
                 >
