@@ -115,6 +115,12 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
   const [consigneePhone, setConsigneePhone] = useState("");
   const [consigneeGst, setConsigneeGst] = useState("");
 
+  // ✅ NEW: Customer (Billing Party)
+  const [customerName, setCustomerName] = useState("");
+  const [customerAddress, setCustomerAddress] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [customerGst, setCustomerGst] = useState("");
+
   // Package & Commodities
   const [packageType, setPackageType] = useState("Carton / Box");
   const [natureOfGoods, setNatureOfGoods] = useState("");
@@ -268,6 +274,17 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
     }
   };
 
+  // ✅ NEW: Customer quick pick
+  const handleSelectCustomer = (partnerId: string) => {
+    const p = partners.find((item) => item.id === partnerId);
+    if (p) {
+      setCustomerName(p.name);
+      setCustomerAddress(`${p.address}, ${p.city}`);
+      setCustomerPhone(p.phone);
+      setCustomerGst(p.taxOrGstId);
+    }
+  };
+
   const handleAddDimensionRow = () => {
     setDimensions([
       ...dimensions,
@@ -299,6 +316,11 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
     setConsigneeAddress("");
     setConsigneePhone("");
     setConsigneeGst("");
+    // ✅ NEW
+    setCustomerName("");
+    setCustomerAddress("");
+    setCustomerPhone("");
+    setCustomerGst("");
     setNatureOfGoods("");
     setDeclaredValue(0);
     setEwayBillNumber("");
@@ -310,7 +332,6 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
     setAwbSearch("");
   };
 
-  /* ---------- Save docket to DB ---------- */
   /* ---------- Save docket to DB ---------- */
   const handleSubmitDocket = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -333,6 +354,11 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
       consigneeAddress,
       consigneePhone,
       consigneeGst,
+      // ✅ NEW: Customer (Billing Party)
+      customerName,
+      customerAddress,
+      customerPhone,
+      customerGst,
       pieces: totalPieces || 1,
       packageType,
       actualWeightKg,
@@ -677,8 +703,8 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
             </div>
           </div>
 
-          {/* Section 2: Consignor & Consignee */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Section 2: Consignor, Consignee & Customer */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* Consignor (Shipper) */}
             <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 space-y-4">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -828,6 +854,80 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                       placeholder="DE814920491"
                       value={consigneeGst}
                       onChange={(e) => setConsigneeGst(e.target.value)}
+                      className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* ✅ NEW: Customer (Billing Party) */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 className="font-bold text-slate-900 font-heading text-base flex items-center gap-2">
+                  <Ticket className="w-4 h-4 text-[#2C5EAD]" />
+                  Customer (Billing Party)
+                </h3>
+                <select
+                  onChange={(e) => handleSelectCustomer(e.target.value)}
+                  className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-slate-300 bg-slate-50 text-slate-700"
+                >
+                  <option value="">Quick Pick Customer...</option>
+                  {partners.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-3 font-sans">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    Customer Full Name
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Acme Corp Pvt Ltd"
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    Billing Address & City
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 12 MG Road, Bengaluru"
+                    value={customerAddress}
+                    onChange={(e) => setCustomerAddress(e.target.value)}
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">
+                      Contact Phone
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="+91-80-4000-1234"
+                      value={customerPhone}
+                      onChange={(e) => setCustomerPhone(e.target.value)}
+                      className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">
+                      GSTIN / Tax ID
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="29AABCU9603R1ZM"
+                      value={customerGst}
+                      onChange={(e) => setCustomerGst(e.target.value)}
                       className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm font-mono"
                     />
                   </div>
@@ -1575,6 +1675,23 @@ export const CreateDocketView: React.FC<CreateDocketViewProps> = ({
                     GST/Tax ID: {selectedDocketForPrint.consigneeGst}
                   </p>
                 </div>
+              </div>
+
+              {/* ✅ NEW: Customer (Billing Party) block on print note */}
+              <div className="p-4 border border-slate-300 rounded-lg space-y-1 text-xs">
+                <span className="font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                  Customer (Billing Party)
+                </span>
+                <div className="font-bold text-sm text-slate-900">
+                  {selectedDocketForPrint.customerName || "—"}
+                </div>
+                <p className="text-slate-600">
+                  {selectedDocketForPrint.customerAddress || ""}
+                </p>
+                <p className="font-mono text-slate-700">
+                  Phone: {selectedDocketForPrint.customerPhone || "—"} · GSTIN:{" "}
+                  {selectedDocketForPrint.customerGst || "—"}
+                </p>
               </div>
 
               <div className="border border-slate-300 rounded-lg overflow-hidden text-xs">
